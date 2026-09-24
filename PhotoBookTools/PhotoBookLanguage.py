@@ -160,11 +160,37 @@ FRENCH = {
     'Erase': 'Effacer',
     'Cancel': 'Annuler',
     'Put this image in the selected frame': 'Mettre cette image dans le cadre sélectionné',
-    'Click one of the selected images to put it in the frame.':
-        'Cliquez sur une des images sélectionnées pour la mettre dans le cadre.',
-    'Select images in the left panel, then click one of them to put it in the frame.':
-        'Sélectionnez des images dans le panneau de gauche, puis cliquez sur l\'une d\'elles '
-        'pour la mettre dans le cadre.',
+    'Click one of the selected images to put it in the frame, or drag an image onto it.':
+        'Cliquez sur une des images sélectionnées pour la mettre dans le cadre, '
+        'ou glissez une image dessus.',
+    'Zoom': 'Zoom',
+    'Fill the frame': 'Remplir le cadre',
+    'Drag the image to move it in the frame.': 'Glissez l\'image pour la déplacer dans le cadre.',
+    'Undo': 'Annuler',
+    'Undo (Ctrl+Z)': 'Annuler (Ctrl+Z)',
+    'Undo: {}': 'Annuler : {}',
+    'Insert a double page here': 'Insérer une double page ici',
+    'double page': 'double page',
+    '{} HEIC images converted to JPEG in the folder "PhotoBook JPEG".':
+        '{} images HEIC converties en JPEG dans le dossier « PhotoBook JPEG ».',
+    'Could not convert: {}': 'Conversion impossible : {}',
+    'Done': 'Terminé',
+    'Write the caption…': 'Écrivez la légende…',
+    'Write your text…': 'Écrivez votre texte…',
+    'Emojis need an emoji font such as Noto Emoji installed, otherwise Scribus cannot print them.':
+        'Les émojis nécessitent une police d\'émojis installée, comme Noto Emoji, sinon Scribus '
+        'ne peut pas les imprimer.',
+    'The text is too long for the frame: shorten it, or enlarge the frame in Scribus.':
+        'Le texte est trop long pour le cadre : raccourcissez-le, ou agrandissez le cadre dans Scribus.',
+    # undo steps (PhotoBookWebGUI.py)
+    'Text': 'texte',
+    'Add pages': 'ajout de pages',
+    'Insert pages': 'insertion de pages',
+    'Move a double page': 'déplacement de double page',
+    'Layout': 'mise en page',
+    'Image change': 'changement d\'image',
+    'Swap images': 'échange d\'images',
+    'Crop': 'recadrage',
     # pages
     'Pages': 'Pages',
     '+ 1 page': '+ 1 page',

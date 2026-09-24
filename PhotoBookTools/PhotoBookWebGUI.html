@@ -143,6 +143,36 @@ main > section + section { border-left: 1px solid var(--line); }
   display: flex; gap: 6px; justify-content: center;
 }
 
+/* crop tools, page insertion, drag and drop */
+.croptools { display: none; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+.croptools.on { display: flex; }
+.croptools input[type=range] { width: 160px; }
+.insert { display: flex; justify-content: center; margin: -4px 0; }
+.insert button { padding: 0 8px; font-size: 11px; line-height: 16px; opacity: .35; }
+.insert button:hover, .insert button:focus { opacity: 1; }
+.spread.dragover { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.spread[draggable=true] { cursor: grab; }
+.item[draggable=true] { -webkit-user-drag: element; }
+
+.texttools { display: none; flex-direction: column; gap: 6px; padding: 4px 0; }
+.texttools.on { display: flex; }
+.texttools textarea {
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--accent); border-radius: 6px; padding: 6px 8px; resize: vertical; min-height: 54px;
+}
+.emojis { display: flex; flex-wrap: wrap; gap: 2px; }
+.emojis button { padding: 1px 4px; font-size: 17px; line-height: 22px; border-color: transparent; background: transparent; }
+.emojis button:hover { border-color: var(--line); background: var(--panel); }
+.warning { color: var(--danger); }
+.layout.current { border-color: var(--accent); background: var(--accent-soft); }
+#toast {
+  position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 30; display: none;
+  background: var(--danger); color: #fff; padding: 8px 14px; border-radius: 6px; box-shadow: var(--shadow); max-width: 70vw;
+}
+.ftext { white-space: pre-wrap; overflow: hidden; line-height: 1.2; color: #222; font-family: Arial, Helvetica, sans-serif;
+  width: 100%; height: 100%; word-wrap: break-word; }
+.ftext.caption { display: flex; align-items: center; justify-content: center; text-align: center; }
+
 /* svg pages */
 svg .pg { fill: var(--page); }
 svg .pgline { fill: none; stroke: #b5b2ab; }
@@ -152,6 +182,7 @@ svg .tx { fill: var(--text); stroke: #b8ab78; }
 svg .other { fill: none; stroke: var(--frame-line); }
 svg .target { fill: none; stroke: var(--accent); }
 svg .pick { fill: none; stroke: var(--accent); }
+svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
 .view svg .frame { cursor: pointer; }
 .view svg .pagehit { cursor: pointer; fill: transparent; }
 
@@ -218,6 +249,7 @@ svg .pick { fill: none; stroke: var(--accent); }
   <h1 data-t>PhotoBook Web GUI</h1>
   <span id="docName" class="muted"></span>
   <div class="spacer"></div>
+  <button id="undoButton" title="Undo (Ctrl+Z)" data-t-title>↶</button>
   <button id="saveButton" data-t>Save</button>
   <button id="closeButton" data-t>Close</button>
 </header>
@@ -277,6 +309,19 @@ svg .pick { fill: none; stroke: var(--accent); }
         <span id="clearQuestion"></span>
         <button id="clearYes" class="danger" data-t>Erase</button>
         <button id="clearNo" data-t>Cancel</button>
+      </div>
+      <div id="cropTools" class="croptools">
+        <span data-t>Zoom</span> <input type="range" id="zoom" min="100" max="400" step="5">
+        <button id="cropReset" data-t>Fill the frame</button>
+        <span class="muted" data-t>Drag the image to move it in the frame.</span>
+      </div>
+      <div id="textTools" class="texttools">
+        <textarea id="textEdit" rows="3" spellcheck="true"></textarea>
+        <div id="emojis" class="emojis"></div>
+        <div class="row" style="margin:0">
+          <span id="textInfo" class="muted"></span><div class="spacer"></div>
+          <button id="textDone" class="primary" data-t>Done</button>
+        </div>
       </div>
       <div class="view"><svg id="view"></svg></div>
       <div id="message"></div>
@@ -425,6 +470,7 @@ svg .pick { fill: none; stroke: var(--accent); }
   </div>
 </div>
 
+<div id="toast"></div>
 <div id="closed" data-t>You can close this tab.</div>
 
 <script>
@@ -439,7 +485,9 @@ let pool = [];            // images of the book
 let chosen = [];          // paths of the images selected for a layout, in order
 let current = 0;          // index of the current spread
 let target = new Set();   // page numbers the layouts are made for
-let picked = null;        // name of the image frame clicked, to replace its image
+let picked = null;        // name of the image frame clicked, to replace or crop its image
+let gesture = null;       // pointer pressed on a frame of the large view
+let dropTarget = null;    // image frame under a dragged image
 let dirty = false;        // changes not saved
 let closeAfterSave = false;
 let listing = null;       // folder shown in the add images dialog
@@ -462,9 +510,16 @@ async function api(path, body) {
 const imageUrl = (path, mode) => '/image?token=' + token + '&mode=' + mode
   + '&path=' + encodeURIComponent(path);
 
+let toastTimer = null;
 function message(text, isError) {
   $('message').textContent = text || '';
   $('message').className = isError ? 'error' : '';
+  if (isError && text) {    // also at the top of the page, not to be missed
+    $('toast').textContent = text;
+    $('toast').style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $('toast').style.display = 'none'; }, 10000);
+  }
 }
 async function run(action) {
   try { return await action(); }
@@ -592,21 +647,29 @@ function itemSvg(it, id, sw, opts) {
   let s = `<g class="frame" data-name="${esc(it.name || '')}" data-kind="${kind}">`;
   if (kind === 'image') {
     s += `<clipPath id="c${id}"><rect ${r}/></clipPath><rect class="fr" ${r} stroke-width="${sw}"/>`;
-    if (it.image && isPreview(it.image)) {
-      s += `<image href="${imageUrl(it.image, opts.large ? 'full' : 'auto')}" ${r}`
-        + ` preserveAspectRatio="xMidYMid slice" clip-path="url(#c${id})"/>`;
+    if (it.image && canPreview(it.image)) {
+      const href = imageUrl(it.image, opts.large ? 'full' : 'auto'), c = it.crop;
+      s += c ? `<image href="${href}" x="${it.x + c[0]}" y="${it.y + c[1]}" width="${c[2]}" height="${c[3]}"`
+          + ` preserveAspectRatio="none" clip-path="url(#c${id})"/>`
+        : `<image href="${href}" ${r} preserveAspectRatio="xMidYMid slice" clip-path="url(#c${id})"/>`;
     }
+    if (opts.large && it.name && it.name === dropTarget) s += `<rect class="drop" ${r} stroke-width="${sw * 3}"/>`;
   } else if (kind === 'text') {
     s += `<rect class="tx" ${r} stroke-width="${sw}"/>`;
+    if (it.text && it.fontsize) {
+      s += `<foreignObject ${r}><div xmlns="http://www.w3.org/1999/xhtml" class="ftext${it.role === 'caption' ? ' caption' : ''}"`
+        + ` style="font-size:${it.fontsize}px">${esc(it.text)}</div></foreignObject>`;
+    }
   } else {
     s += `<rect class="other" ${r} stroke-width="${sw}"/>`;
   }
   if (opts.large && it.name && it.name === picked) {
-    s += `<rect class="pick" ${r} stroke-width="${sw * 5}"/>`;
+    s += `<rect class="pick" ${r} stroke-width="${sw * 5}" pointer-events="none"/>`;
   }
   return s + '</g>';
 }
-const isPreview = path => /\.(jpe?g|png|gif|bmp|webp)$/i.test(path);
+const canPreview = path => /\.(jpe?g|png|gif|bmp|webp)$/i.test(path)
+  || (S.converter && /\.(tiff?|psd|heic|heif)$/i.test(path));
 
 function renderSpreads() {
   const box = $('spreads'), list = spreads();
@@ -616,12 +679,56 @@ function renderSpreads() {
     b.className = 'spread' + (i === current ? ' current' : '');
     b.innerHTML = pagesSvg(sp, {id: 's' + i}) + `<div class="label">${esc(pageLabel(sp))}</div>`;
     b.onclick = () => selectSpread(i);
+    if (sp.length === 2) {    // double pages can be moved by dragging them
+      b.draggable = true;
+      b.ondragstart = e => e.dataTransfer.setData('application/x-spread', String(i));
+      b.ondragover = e => {
+        if (e.dataTransfer.types.includes('application/x-spread')) { e.preventDefault(); b.classList.add('dragover'); }
+      };
+      b.ondragleave = () => b.classList.remove('dragover');
+      b.ondrop = e => {
+        e.preventDefault(); b.classList.remove('dragover');
+        const from = parseInt(e.dataTransfer.getData('application/x-spread'));
+        if (!isNaN(from) && from !== i) moveSpread(from, i);
+      };
+    }
     box.appendChild(b);
+    // a double page can be inserted after page 1 and after a double page
+    if (!(sp.length === 1 && sp[0].side === 0)) {
+      const gap = document.createElement('div');
+      gap.className = 'insert';
+      gap.innerHTML = `<button title="${esc(t('Insert a double page here'))}">+ ${esc(t('double page'))}</button>`;
+      gap.querySelector('button').onclick = () => insertPages(sp[sp.length - 1].page, i + 1);
+      box.appendChild(gap);
+    }
   });
   const last = doc.pages[doc.pages.length - 1];
   $('add2').disabled = !last || last.side === 0;    // a single left page must be completed first
-  const cur = box.children[current];
+  const cur = box.querySelectorAll('.spread')[current];
   if (cur) cur.scrollIntoView({block: 'nearest'});
+}
+
+// move the double page at index 'from' to the place of the one at index 'to'
+async function moveSpread(from, to) {
+  const list = spreads(), doubles = list.map((sp, i) => [sp, i]).filter(([sp]) => sp.length === 2);
+  const order = doubles.map(([sp]) => sp[0].page);
+  const a = doubles.findIndex(([, i]) => i === from), b = doubles.findIndex(([, i]) => i === to);
+  const [moved] = order.splice(a, 1);
+  order.splice(b, 0, moved);
+  await run(async () => {
+    const r = await api('/api/reorder', {order});
+    doc = r.document; dirty = true;
+    if (r.errors && r.errors.length) message(t('Errors:') + ' ' + r.errors.join('; '), true);
+    selectSpread(to);
+  });
+}
+
+async function insertPages(after, index) {
+  await run(async () => {
+    doc = (await api('/api/insertpages', {after, count: 2})).document;
+    dirty = true;
+    selectSpread(index);
+  });
 }
 
 function selectSpread(i) {
@@ -644,21 +751,205 @@ function renderStage() {
       + (tp.length === 2 ? t('both pages') : tp.length ? (tp[0] === sp[0] ? t('left page') : t('right page')) : t('none'))
     : '';
   $('clearPages').disabled = !tp.some(p => p.items.length);
+  if (picked && !itemByName(picked)) picked = null;
   const svg = pagesSvg(sp, {large: true});
   $('view').outerHTML = svg.replace('<svg ', '<svg id="view" ');
+  bindView();
+  renderCropTools();
+}
+
+const itemByName = name => {
+  for (const p of doc.pages) for (const i of p.items) if (i.name === name) return i;
+  return null;
+};
+const pageOfItem = name => (doc.pages.find(p => p.items.some(i => i.name === name)) || {}).page;
+
+// image frame under the pointer
+function frameAt(x, y) {
+  const el = document.elementFromPoint(x, y), g = el && el.closest && el.closest('#view .frame');
+  return g && g.dataset.kind === 'image' && g.dataset.name ? g.dataset.name : null;
+}
+function setDropTarget(name) {
+  if (name === dropTarget) return;
+  dropTarget = name;
+  renderStage();
+}
+
+function bindView() {
   const view = $('view');
   view.querySelectorAll('.pagehit').forEach(r => r.onclick = () => toggleTarget(+r.dataset.page));
-  view.querySelectorAll('.frame').forEach(g => {
-    g.onclick = e => {
-      e.stopPropagation();
-      if (g.dataset.kind === 'image' && g.dataset.name) {
-        picked = picked === g.dataset.name ? null : g.dataset.name;
-        renderStage(); renderChosenBar();
-      } else toggleTarget(pageOfItem(g.dataset.name));
-    };
+  view.onpointerdown = e => {
+    const g = e.target.closest('.frame');
+    if (!g || e.button !== 0) return;
+    gesture = {name: g.dataset.name, kind: g.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false};
+    const it = itemByName(gesture.name);
+    if (gesture.name === picked && it && it.crop) Object.assign(gesture, {mode: 'pan', item: it, crop: it.crop.slice()});
+    view.setPointerCapture(e.pointerId);
+  };
+  view.onpointermove = e => {
+    if (!gesture) return;
+    const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
+    if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
+    gesture.moved = true;
+    if (gesture.mode === 'pan') {
+      const k = view.getScreenCTM().a, it = gesture.item, c = gesture.crop;
+      it.crop = [clamp(c[0] + dx / k, it.w - c[2], 0), clamp(c[1] + dy / k, it.h - c[3], 0), c[2], c[3]];
+      moveImage(it);
+    } else if (gesture.kind === 'image' && gesture.name && itemByName(gesture.name).image) {
+      gesture.mode = 'swap';
+      const over = frameAt(e.clientX, e.clientY);
+      view.style.cursor = 'grabbing';
+      if (over !== dropTarget) { dropTarget = over !== gesture.name ? over : null; highlightDrop(); }
+    }
+  };
+  view.onpointerup = () => {
+    const g = gesture;
+    gesture = null;
+    view.style.cursor = '';
+    if (!g) return;
+    if (!g.moved) {
+      if ((g.kind === 'image' || g.kind === 'text') && g.name) {
+        if (picked && picked !== g.name) saveText();
+        picked = picked === g.name ? null : g.name;
+        message(picked && g.kind === 'image'
+          ? t('Click one of the selected images to put it in the frame, or drag an image onto it.') : '');
+        renderStage(); renderChosenBar(); renderTextTools(true);
+      } else toggleTarget(pageOfItem(g.name));
+    } else if (g.mode === 'pan') commitCrop(g.item);
+    else if (g.mode === 'swap') {
+      const other = dropTarget;
+      dropTarget = null;
+      if (other) swapImages(g.name, other); else renderStage();
+    }
+  };
+  // images dragged from the left panel or from the selected images
+  view.ondragover = e => {
+    if (!e.dataTransfer.types.includes('text/plain')) return;
+    const over = frameAt(e.clientX, e.clientY);
+    if (over) e.preventDefault();
+    if (over !== dropTarget) { dropTarget = over; highlightDrop(); }
+  };
+  view.ondragleave = e => { if (!view.contains(e.relatedTarget)) { dropTarget = null; highlightDrop(); } };
+  view.ondrop = e => {
+    e.preventDefault();
+    const frame = dropTarget, path = e.dataTransfer.getData('text/plain');
+    dropTarget = null; highlightDrop();
+    if (frame && path) replaceImage(path, frame);
+  };
+}
+function highlightDrop() {
+  const view = $('view');
+  view.querySelectorAll('rect.drop').forEach(r => r.remove());
+  if (!dropTarget) return;
+  const it = itemByName(dropTarget), g = [...view.querySelectorAll('.frame')].find(g => g.dataset.name === dropTarget);
+  if (!it || !g) return;
+  const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  const sw = parseFloat(view.querySelector('.pgline').getAttribute('stroke-width'));
+  Object.entries({class: 'drop', x: it.x, y: it.y, width: it.w, height: it.h, 'stroke-width': sw * 3, 'pointer-events': 'none'})
+    .forEach(([k, v]) => r.setAttribute(k, v));
+  g.appendChild(r);
+}
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ---------- crop: zoom and position of the image in the picked frame
+
+// zoom (1 = the image just fills the frame) and center of the frame in the image
+function cropState(it) {
+  const c = it.crop, zoom = Math.min(c[2] / it.w, c[3] / it.h);
+  return {zoom, cx: (it.w / 2 - c[0]) / c[2], cy: (it.h / 2 - c[1]) / c[3]};
+}
+function moveImage(it) {
+  const g = [...$('view').querySelectorAll('.frame')].find(g => g.dataset.name === it.name);
+  const im = g && g.querySelector('image');
+  if (!im) return;
+  im.setAttribute('x', it.x + it.crop[0]); im.setAttribute('y', it.y + it.crop[1]);
+  im.setAttribute('width', it.crop[2]); im.setAttribute('height', it.crop[3]);
+}
+function renderCropTools() {
+  const it = picked && itemByName(picked);
+  $('cropTools').classList.toggle('on', !!(it && it.crop && it.kind === 'image'));
+  if (it && it.crop) $('zoom').value = Math.round(cropState(it).zoom * 100);
+}
+function zoomTo(z) {
+  const it = itemByName(picked);
+  if (!it || !it.crop) return;
+  const st = cropState(it), c = it.crop;
+  const w = c[2] / st.zoom * z, h = c[3] / st.zoom * z;
+  it.crop = [clamp(it.w / 2 - st.cx * w, it.w - w, 0), clamp(it.h / 2 - st.cy * h, it.h - h, 0), w, h];
+  moveImage(it);
+}
+async function commitCrop(it) {
+  const st = cropState(it);
+  await run(async () => {
+    doc = (await api('/api/crop', {frame: it.name, zoom: st.zoom, cx: st.cx, cy: st.cy})).document;
+    dirty = true;
+    renderAll();
   });
 }
-const pageOfItem = name => (doc.pages.find(p => p.items.some(i => i.name === name)) || {}).page;
+// ---------- texts of captions and text blocks
+
+const EMOJIS = ('😀 😂 😊 😍 🥰 😘 😎 🤩 🥳 😢 😮 😴 👍 👏 🙏 💪 👋 ❤️ 💕 💖 💙 💚 💛 ⭐ ✨ 🎉 🎂 🎁 🎈 '
+  + '🌞 🌈 🌸 🌻 🍀 🌊 🏖️ ⛰️ 🏕️ ✈️ 🚗 🚲 🏠 👶 👧 👦 👨‍👩‍👧 🐶 🐱 🐴 ⚽ 🎄 🍾 🍰 ☕').split(' ');
+const PLACEHOLDERS = () => [t('Caption'), t('Your text here')];
+let textTimer = null, textFrame = null, textSaved = '';
+
+function renderTextTools(reset) {
+  const it = picked && itemByName(picked);
+  const on = !!(it && it.kind === 'text');
+  $('textTools').classList.toggle('on', on);
+  if (!on) { textFrame = null; return; }
+  if (reset || textFrame !== it.name) {
+    textFrame = it.name;
+    $('textEdit').value = textSaved = PLACEHOLDERS().includes(it.text) ? '' : (it.text || '');
+    $('textEdit').placeholder = it.role === 'caption' ? t('Write the caption…') : t('Write your text…');
+    $('textInfo').textContent = doc.emojiFont ? ''
+      : t('Emojis need an emoji font such as Noto Emoji installed, otherwise Scribus cannot print them.');
+    $('textInfo').className = 'muted';
+    $('textEdit').focus();
+  }
+}
+function textChanged() {
+  const it = itemByName(textFrame);
+  if (!it) return;
+  it.text = $('textEdit').value;    // shown at once, saved after a pause
+  const g = [...$('view').querySelectorAll('.frame')].find(g => g.dataset.name === it.name);
+  const div = g && g.querySelector('.ftext');
+  if (div) div.textContent = it.text;
+  clearTimeout(textTimer);
+  textTimer = setTimeout(saveText, 900);
+}
+async function saveText() {
+  clearTimeout(textTimer);
+  textTimer = null;
+  const frame = textFrame, it = itemByName(frame);
+  if (!it || !$('textTools').classList.contains('on')) return;
+  const text = $('textEdit').value;
+  if (text === textSaved) return;
+  textSaved = text;
+  try {
+    const r = await api('/api/text', {frame, text});
+    doc = r.document; dirty = true;
+    renderHeader(); renderSpreads();
+    const info = r.overflow ? t('The text is too long for the frame: shorten it, or enlarge the frame in Scribus.') : '';
+    if (info || doc.emojiFont) { $('textInfo').textContent = info; $('textInfo').className = info ? 'warning' : 'muted'; }
+  } catch (e) { message(e.message, true); }
+}
+function insertEmoji(emoji) {
+  const ta = $('textEdit'), start = ta.selectionStart, end = ta.selectionEnd;
+  ta.value = ta.value.slice(0, start) + emoji + ta.value.slice(end);
+  ta.selectionStart = ta.selectionEnd = start + emoji.length;
+  ta.focus();
+  textChanged();
+}
+
+async function swapImages(first, second) {
+  await run(async () => {
+    doc = (await api('/api/swap', {first, second})).document;
+    dirty = true; picked = null;
+    message('');
+    renderAll();
+  });
+}
 
 function toggleTarget(page) {
   if (!page) return;
@@ -707,28 +998,66 @@ function pageAreas(p, o, outerLeft) {
   return {area: a, text};
 }
 
-// frames of a pattern on a page: image frames, captions and text block
-function pageFrames(p, pattern, o, outerLeft) {
-  const {area, text} = pageAreas(p, o, outerLeft);
+// frames of a pattern in an area of a page: image frames and their captions
+function areaFrames(page, area, pattern, o) {
+  if (area[2] <= 0 || area[3] <= 0) return null;
   const rects = layout(pattern, area, o);
   if (!rects) return null;
   const frames = [];
   for (const r of rects) {
-    frames.push({page: p.page, kind: 'image', x: r.x, y: r.y, w: r.w, h: r.h});
-    if (r.caption) frames.push({page: p.page, kind: 'caption', x: r.caption[0], y: r.caption[1],
+    frames.push({page, kind: 'image', x: r.x, y: r.y, w: r.w, h: r.h});
+    if (r.caption) frames.push({page, kind: 'caption', x: r.caption[0], y: r.caption[1],
       w: r.caption[2], h: r.caption[3]});
   }
+  return frames;
+}
+
+// frames of a pattern on a page, with the text block
+function pageFrames(p, pattern, o, outerLeft) {
+  const {area, text} = pageAreas(p, o, outerLeft);
+  const frames = areaFrames(p.page, area, pattern, o);
+  if (!frames) return null;
   if (text) frames.push({page: p.page, kind: 'text', x: text[0], y: text[1], w: text[2], h: text[3]});
   return frames;
 }
 
-// one image over both pages of a double page (the frame belongs to the left page)
-function panoramaFrames(L, R, o) {
-  const spread = {page: L.page, width: L.width + R.width, height: Math.max(L.height, R.height),
-    margins: {top: Math.max(L.margins.top, R.margins.top), bottom: Math.max(L.margins.bottom, R.margins.bottom),
-      left: L.margins.left, right: R.margins.right}};
-  return pageFrames(spread, grid(1, 1), Object.assign({}, o,
-    {textblock: o.textblock === 'outer' ? 'bottom' : o.textblock}), null);
+// layouts of a double page with one image across the fold (it belongs to the left page)
+// and the other images on both sides: in a band below or above it, or in the outer columns
+function panoramaLayouts(L, R, n, o) {
+  const g = o.gap, out = [], k = n - 1;
+  let x = L.margins.left, y = Math.max(L.margins.top, R.margins.top);
+  let w = L.width + R.width - R.margins.right - x;
+  let h = Math.min(L.height - L.margins.bottom, R.height - R.margins.bottom) - y;
+  if (o.airy) { x += g; y += g; w -= 2 * g; h -= 2 * g; }
+  const leftEnd = L.width - L.margins.right, rightStart = R.margins.left, rightEnd = R.width - R.margins.right;
+  const texts = [];
+  if (o.textblock !== 'none') {    // on both pages, at the top or at the bottom
+    const th = h * o.textsize, top = o.textblock === 'top', ty = top ? y : y + h - th;
+    texts.push({page: L.page, kind: 'text', x, y: ty, w: leftEnd - x, h: th});
+    texts.push({page: R.page, kind: 'text', x: rightStart, y: ty, w: rightEnd - rightStart - (o.airy ? g : 0), h: th});
+    if (top) y += th + g;
+    h -= th + g;
+  }
+  const pano = area => areaFrames(L.page, area, grid(1, 1), o);
+  const side = (page, area, pattern) => pattern ? areaFrames(page, area, pattern, o) : [];
+  const add = (parts, sig) => { if (parts.every(Boolean)) out.push({frames: [].concat(...parts, texts), sig: 'pano' + sig + n}); };
+  if (k === 0) { add([pano([x, y, w, h])], 'full'); return out; }
+  const kl = Math.ceil(k / 2), kr = k - kl;
+  for (const top of [true, false]) {
+    const ph = (h - g) * 0.62, bh = h - g - ph;
+    const py = top ? y : y + bh + g, by = top ? y + ph + g : y;
+    add([pano([x, py, w, ph]),
+      side(L.page, [x, by, leftEnd - x, bh], kl && grid(kl, 1)),
+      side(R.page, [rightStart, by, rightEnd - rightStart - (o.airy ? g : 0), bh], kr && grid(kr, 1))],
+      top ? 'top' : 'bottom');
+  }
+  const pw = w * 0.5, px = L.width - pw / 2;
+  if (px - g > x) {
+    add([pano([px, y, pw, h]),
+      side(L.page, [x, y, px - g - x, h], grid(1, kl)),
+      side(R.page, [pw / 2 + g, y, rightEnd - pw / 2 - g - (o.airy ? g : 0), h], kr && grid(1, kr))], 'center');
+  }
+  return out;
 }
 
 const orientation = r => r > 1.1 ? 'L' : r < 0.9 ? 'P' : 'S';
@@ -750,22 +1079,20 @@ function assignImages(frames, images) {
   return mismatches;
 }
 
-function proposals() {
-  const n = chosen.length, sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
-  if (!n || !tp.length || tp.some(foreign)) return [];
-  const o = options(), images = chosen.map(path => pool.find(im => im.path === path)).filter(Boolean);
+// layouts for n images on the target pages, each with a name (sig) independent of the options
+function layoutsFor(tp, n, images, o) {
   const outer = p => p.side === 0 ? true : p.side === 2 ? false : null;
   const list = [];
-  const add = frames => {
+  const add = (frames, sig) => {
     if (!frames) return;
     const mismatches = assignImages(frames, images);
-    list.push({frames, mismatches});
+    list.push({frames, mismatches, sig});
   };
   if (tp.length === 1) {
-    for (const p of patternsWith(n)) add(pageFrames(tp[0], p, o, outer(tp[0])));
+    for (const p of patternsWith(n)) add(pageFrames(tp[0], p, o, outer(tp[0])), 'p' + key(p));
   } else {
     const [L, R] = tp;
-    if (n === 1) add(panoramaFrames(L, R, o));
+    for (const {frames, sig} of panoramaLayouts(L, R, n, o)) add(frames, sig);
     // k images on the left page, n - k on the right one, the most balanced first
     const splits = [];
     for (let k = 1; k < n; k++) splits.push(k);
@@ -776,13 +1103,50 @@ function proposals() {
       for (const lp of left) for (const rp of right) {
         if (count++ >= 8) break;
         const lf = pageFrames(L, lp, o, true), rf = pageFrames(R, rp, o, false);
-        if (lf && rf) add(lf.concat(rf));
+        if (lf && rf) add(lf.concat(rf), 'd' + key(lp) + key(rp));
       }
     }
   }
-  // the proposals whose frames fit the orientation of the images first
+  // the layouts whose frames fit the orientation of the images first
   return list.map((p, i) => [p, i]).sort((a, b) => a[0].mismatches - b[0].mismatches || a[1] - b[1])
-    .map(a => a[0]).slice(0, 30);
+    .map(a => a[0]);
+}
+
+function proposals() {
+  const n = chosen.length, sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  if (!n || !tp.length || tp.some(foreign)) return [];
+  const images = chosen.map(path => pool.find(im => im.path === path)).filter(Boolean);
+  return layoutsFor(tp, n, images, options()).slice(0, 30);
+}
+
+// name of the layout applied by this page on the target pages, if they have only its items
+function appliedLayout(tp) {
+  const items = tp.flatMap(p => p.items);
+  if (!items.length || items.some(i => !i.app || !i.layout)) return null;
+  const sig = items[0].layout;
+  return items.every(i => i.layout === sig) ? sig : null;
+}
+
+// apply the current layout again, with the new options, keeping its images, crops and texts
+async function reapply() {
+  const sp = currentSpread(), tp = sp.filter(p => target.has(p.page)), sig = appliedLayout(tp);
+  if (!sig) return;
+  const items = tp.flatMap(p => p.items).sort((a, b) => a.slot - b.slot);
+  const of = role => items.filter(i => i.role === role);
+  const images = of('image'), captions = of('caption'), texts = of('text');
+  const found = layoutsFor(tp, images.length, images.map(i => ({path: i.image, size: null})), options())
+    .find(p => p.sig === sig);
+  if (!found) return;
+  let ii = 0, ci = 0, ti = 0;
+  for (const f of found.frames) {
+    if (f.kind === 'image') {
+      const it = images[ii++];
+      f.image = it && it.image || null;
+      if (it && it.crop) f.crop = cropState(it);
+    } else if (f.kind === 'caption') { const it = captions[ci++]; if (it) f.text = it.text; }
+    else { const it = texts[ti++]; if (it) f.text = it.text; }
+  }
+  await apply(tp, found.frames, sig);
 }
 
 function renderLayouts() {
@@ -799,18 +1163,19 @@ function renderLayouts() {
   if (!info && !list.length) info = t('No layout for this number of images: create a pattern in More options.');
   if (!info && tp.some(p => p.items.length)) info = t('Choosing a layout replaces the current one.');
   $('layoutsInfo').textContent = info;
+  const current = appliedLayout(tp);
   list.forEach((p, i) => {
     const b = document.createElement('button');
-    b.className = 'layout';
+    b.className = 'layout' + (p.sig === current ? ' current' : '');
     b.innerHTML = pagesSvg(tp, {frames: p.frames, id: 'l' + i});
-    b.onclick = () => apply(tp, p.frames);
+    b.onclick = () => apply(tp, p.frames, p.sig);
     box.appendChild(b);
   });
 }
 
-async function apply(tp, frames) {
+async function apply(tp, frames, layout) {
   await run(async () => {
-    const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value});
+    const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value, layout});
     doc = r.document; dirty = true; picked = null;
     message(r.errors.length ? t('Errors:') + ' ' + r.errors.join('; ') : t('Layout applied.'), r.errors.length > 0);
     renderAll();
@@ -859,6 +1224,8 @@ function renderPool() {
     d.querySelector('.name').textContent = im.name;
     d.onclick = () => toggleChosen(im.path);
     d.ondblclick = () => showImage(pool, idx);
+    d.draggable = true;
+    d.ondragstart = e => { e.dataTransfer.setData('text/plain', im.path); e.dataTransfer.effectAllowed = 'copy'; };
     d.querySelector('.see').onclick = e => { e.stopPropagation(); showImage(pool, idx); };
     d.querySelector('.remove').onclick = e => { e.stopPropagation(); removeFromPool(im.path); };
     box.appendChild(d);
@@ -889,14 +1256,14 @@ function renderChosenBar() {
     d.innerHTML = `<div class="img">${thumbHtml(im)}</div><span class="badge">${i + 1}</span>`;
     d.onclick = () => picked ? replaceImage(path)
       : showImage(chosen.map(p => pool.find(im => im.path === p)), i);
+    d.draggable = true;
+    d.ondragstart = e => { e.dataTransfer.setData('text/plain', path); e.dataTransfer.effectAllowed = 'copy'; };
     box.appendChild(d);
   });
-  if (picked) message(chosen.length ? t('Click one of the selected images to put it in the frame.')
-    : t('Select images in the left panel, then click one of them to put it in the frame.'));
 }
 
-async function replaceImage(path) {
-  const frame = picked;
+async function replaceImage(path, frame) {
+  frame = frame || picked;
   await run(async () => {
     doc = (await api('/api/setimage', {frame, image: path})).document;
     dirty = true; picked = null;
@@ -912,11 +1279,14 @@ function toggleChosen(path) {
 }
 
 async function setPool(paths) {
-  await run(async () => {
-    pool = (await api('/api/pool', {images: paths})).pool;
-    chosen = chosen.filter(p => paths.includes(p));
+  return await run(async () => {
+    const r = await api('/api/pool', {images: paths});
+    pool = r.pool;
+    const inPool = new Set(pool.map(p => p.path));
+    chosen = chosen.filter(p => inPool.has(p));
     renderPool();
     if (doc) { renderChosenBar(); renderLayouts(); }
+    return r;
   });
 }
 const removeFromPool = path => setPool(pool.map(p => p.path).filter(p => p !== path));
@@ -986,10 +1356,13 @@ function renderBrowser() {
 async function addChecked() {
   const paths = pool.map(p => p.path);
   for (const im of listing.images) if (checked.has(im.path)) paths.push(im.path);
-  await setPool(paths);
+  const r = await setPool(paths);
   checked = new Set();
   renderBrowser();
-  $('checkedCount').textContent = t('Images added to the book.');
+  let text = t('Images added to the book.');
+  if (r && r.converted) text += ' ' + fmt('{} HEIC images converted to JPEG in the folder "PhotoBook JPEG".', r.converted);
+  if (r && r.failed.length) text += ' ' + fmt('Could not convert: {}', r.failed.join(', '));
+  $('checkedCount').textContent = text;
 }
 
 // ---------- pattern editor (in More options)
@@ -1130,8 +1503,10 @@ function updateGapInfo() {
 async function createBook() {
   const f = $('pageunit').value === 'cm' ? 10 : 1, num = id => (parseFloat($(id).value) || 0) * f;
   await run(async () => {
-    doc = (await api('/api/newdocument', {width: num('pagewidth'), height: num('pageheight'),
-      margin: num('margin'), bleed: num('bleed')})).document;
+    const r = await api('/api/newdocument', {width: num('pagewidth'), height: num('pageheight'),
+      margin: num('margin'), bleed: num('bleed')});
+    doc = r.document;
+    if (r.pool) pool = r.pool;
     dirty = true;
     $('setup').classList.remove('open');
     selectSpread(0);
@@ -1173,6 +1548,18 @@ async function quit() {
 function renderHeader() {
   $('docName').textContent = doc ? doc.name : '';
   $('saveButton').disabled = !doc;
+  $('undoButton').disabled = !(doc && doc.undo);
+  $('undoButton').textContent = '↶ ' + (doc && doc.undo ? fmt('Undo: {}', doc.undo) : t('Undo'));
+}
+
+async function undo() {
+  if (!doc || !doc.undo) return;
+  await run(async () => {
+    doc = (await api('/api/undo')).document;
+    picked = null;
+    message('');
+    renderAll();
+  });
 }
 
 // ---------- start
@@ -1186,6 +1573,7 @@ function renderAll() {
   renderPool();
   renderChosenBar();
   renderLayouts();
+  renderTextTools();
 }
 
 function translatePage() {
@@ -1243,9 +1631,30 @@ async function start() {
     renderEditor();
   };
   for (const id of ['spacing', 'captions', 'textblock', 'captionh', 'textsize', 'scale', 'aspectwidth',
-    'aspectheight', 'alignh', 'alignv']) {
+    'aspectheight', 'alignh', 'alignv', 'border']) {
     $(id).addEventListener('input', () => { updateGapInfo(); if (doc) renderLayouts(); });
+    $(id).addEventListener('change', () => { if (doc) reapply(); });    // the current layout follows
   }
+  $('textEdit').oninput = textChanged;
+  $('textEdit').onblur = () => { if (textTimer) saveText(); };
+  $('textDone').onclick = async () => {
+    await saveText();
+    picked = null; renderStage(); renderChosenBar(); renderTextTools();
+  };
+  EMOJIS.forEach(emoji => {
+    const b = document.createElement('button');
+    b.textContent = emoji;
+    b.onmousedown = e => e.preventDefault();    // keep the cursor in the text
+    b.onclick = () => insertEmoji(emoji);
+    $('emojis').appendChild(b);
+  });
+  $('undoButton').onclick = undo;
+  $('zoom').oninput = () => zoomTo($('zoom').value / 100);
+  $('zoom').onchange = () => { const it = itemByName(picked); if (it && it.crop) commitCrop(it); };
+  $('cropReset').onclick = () => run(async () => {
+    doc = (await api('/api/crop', {frame: picked, zoom: 1, cx: 0.5, cy: 0.5})).document;
+    dirty = true; renderAll();
+  });
   $('clearPages').onclick = showClearConfirm;
   $('clearNo').onclick = hideClearConfirm;
   $('clearYes').onclick = clearPages;
@@ -1271,8 +1680,13 @@ async function start() {
     }
     if (e.key === 'Escape') {
       closeModals();
-      if (picked) { picked = null; message(''); renderStage(); renderChosenBar(); }
+      if (picked) {
+        saveText();
+        picked = null; message(''); renderStage(); renderChosenBar(); renderTextTools();
+      }
     }
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); }
   });
 
   if (doc) selectSpread(0);
