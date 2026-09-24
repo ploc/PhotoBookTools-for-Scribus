@@ -10,6 +10,8 @@ Summary of workflow:
 5) Edit caption texts (if you have created them in step 1).
 6) Export your photo book to pdf or other formats.
 
+Alternative for steps 1 to 3: the ‘PhotoBookWebGUI’-script opens a web page in your browser to build the whole book: choose the page size (when no document is open), pick the images of the book on your drive, add pages or double pages, then select images and click one of the proposed layouts for the page or double page. Frames are created in the Scribus document with the images filled and centered; captions and text blocks can then be written in Scribus. Keep ‘PhotoBookWebGUI.html’, ‘PhotoBookWebGUI.cfg’ and ‘PhotoBookLanguage.py’ in the same folder as the script. Scribus does not respond while the web page is open: press ‘Close’ in the page to come back to Scribus.
+
 A little demo video: https://www.youtube.com/watch?v=3bcF4KhCCJg
 
 For Scribus 1.5.6 and higher (needs Python 3; tested in Windows 10 and Linux).

@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<!--
+PhotoBookWebGUI web interface, served by PhotoBookWebGUI.py
+(run the script from Scribus, do not open this file directly).
+LICENSE: GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhotoBook Web GUI</title>
+<style>
+:root {
+  --bg: #f4f3f0; --panel: #ffffff; --ink: #22211f; --muted: #6f6c66; --line: #dddad3;
+  --accent: #2f6fb0; --accent-ink: #ffffff; --accent-soft: #dce8f5;
+  --page: #ffffff; --frame: #d4d1ca; --frame-line: #8f8c85; --text: #efe7c9; --danger: #b3412f;
+  --shadow: 0 1px 3px rgba(0,0,0,.18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1a; --panel: #252523; --ink: #ecebe7; --muted: #a09d96; --line: #3a3936;
+    --accent: #6ea6de; --accent-ink: #10161c; --accent-soft: #24384d;
+    --page: #f4f3ef; --frame: #c9c6bf; --frame-line: #8a877f; --text: #e9dfb8; --danger: #e27a66;
+    --shadow: 0 1px 3px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column;
+}
+button, input, select { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--danger); }
+button.icon { padding: 2px 7px; }
+button.on { background: var(--accent-soft); border-color: var(--accent); }
+input[type=number], input[type=text], select {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 5px; padding: 3px 6px;
+}
+input[type=number] { width: 70px; }
+.muted { color: var(--muted); }
+.spacer { flex: 1; }
+.row { display: flex; align-items: center; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+.row label.name { flex: 1; min-width: 140px; }
+h2 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  margin: 0 0 8px; font-weight: 600; display: flex; align-items: center; gap: 6px;
+}
+h2 .spacer { flex: 1; }
+
+header {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+#docName { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+main {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: minmax(230px, 290px) 1fr minmax(220px, 270px);
+}
+main > section { min-height: 0; overflow: auto; padding: 12px 14px; }
+main > section + section { border-left: 1px solid var(--line); }
+
+/* left: images of the book */
+.pool.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.pool.list { display: flex; flex-direction: column; gap: 2px; }
+.item {
+  position: relative; border: 2px solid transparent; border-radius: 6px; background: var(--panel);
+  cursor: pointer; user-select: none;
+}
+.item.chosen { border-color: var(--accent); }
+.pool.grid .item .img { aspect-ratio: 1; border-radius: 4px; }
+.img {
+  background: var(--line); display: flex; align-items: center; justify-content: center;
+  overflow: hidden; color: var(--muted); font-size: 10px;
+}
+.img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pool.grid .item .name { display: none; }
+.pool.list .item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
+.pool.list .item .img { display: none; }
+.pool.list .item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge {
+  min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.pool.grid .badge { position: absolute; top: 3px; left: 3px; }
+.used { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.pool.grid .used {
+  position: absolute; bottom: 3px; left: 3px; background: var(--panel); border-radius: 4px; padding: 0 4px;
+}
+.item .tools { display: flex; gap: 2px; }
+.pool.grid .item .tools { position: absolute; top: 2px; right: 2px; display: none; }
+.pool.grid .item:hover .tools { display: flex; }
+.tools button { padding: 0 5px; font-size: 11px; line-height: 16px; }
+.missing .name { text-decoration: line-through; }
+
+/* center */
+.center { display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px !important; }
+.chosenbar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; min-height: 58px; }
+.chosenbar .item { width: 54px; flex: none; }
+.chosenbar .item .img { width: 50px; height: 50px; border-radius: 4px; }
+.chosenbar .badge { position: absolute; top: 2px; left: 2px; }
+.chosenbar.picking .item { border-color: var(--accent); border-style: dashed; }
+.layouts {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px;
+  max-height: 190px; overflow-y: auto; padding-right: 4px;
+}
+.layouts.single { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); }
+.layout { padding: 5px; line-height: 0; border: 2px solid transparent; background: var(--panel); border-radius: 6px; }
+.layout svg { width: 100%; height: auto; }
+.options { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.stage { flex: 1; min-height: 260px; display: flex; flex-direction: column; }
+.stagebar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.view { flex: 1; min-height: 200px; display: flex; align-items: center; justify-content: center; }
+.view svg { width: 100%; height: 100%; }
+#message { min-height: 1.4em; }
+#message.error { color: var(--danger); }
+.confirm {
+  display: none; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 6px;
+  background: var(--accent-soft);
+}
+
+/* right: pages of the book */
+.spreads { display: flex; flex-direction: column; gap: 10px; }
+.spread { padding: 6px; border: 2px solid transparent; border-radius: 6px; background: transparent; }
+.spread.current { border-color: var(--accent); background: var(--accent-soft); }
+.spread svg { width: 100%; height: auto; display: block; }
+.spread .label { font-size: 11px; color: var(--muted); margin-top: 3px; text-align: center; }
+.addpages {
+  position: sticky; bottom: -12px; background: var(--bg); padding: 10px 0 12px;
+  display: flex; gap: 6px; justify-content: center;
+}
+
+/* svg pages */
+svg .pg { fill: var(--page); }
+svg .pgline { fill: none; stroke: #b5b2ab; }
+svg .margin { fill: none; stroke: #d58ec9; }
+svg .fr { fill: var(--frame); stroke: var(--frame-line); }
+svg .tx { fill: var(--text); stroke: #b8ab78; }
+svg .other { fill: none; stroke: var(--frame-line); }
+svg .target { fill: none; stroke: var(--accent); }
+svg .pick { fill: none; stroke: var(--accent); }
+.view svg .frame { cursor: pointer; }
+.view svg .pagehit { cursor: pointer; fill: transparent; }
+
+/* dialogs */
+.modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
+  align-items: center; justify-content: center; padding: 20px; z-index: 10;
+}
+.modal.open { display: flex; }
+.dialog {
+  background: var(--panel); border-radius: 10px; box-shadow: var(--shadow); padding: 16px 18px;
+  max-width: 900px; width: 100%; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px;
+}
+.dialog h3 { margin: 0; font-size: 15px; }
+.dialog .buttons { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+#setup .dialog, #saveDialog .dialog, #closeDialog .dialog { max-width: 440px; }
+.folderbar { display: flex; gap: 6px; }
+.folderbar input { flex: 1; min-width: 0; }
+.dirs { display: flex; flex-wrap: wrap; gap: 4px; }
+.dirs button { padding: 2px 8px; font-size: 12px; }
+.files { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; min-height: 120px; }
+.file { position: relative; border: 2px solid transparent; border-radius: 6px; padding: 0; background: var(--panel); text-align: left; overflow: hidden; }
+.file .img { aspect-ratio: 1; }
+.file .name { font-size: 11px; padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file.checked { border-color: var(--accent); }
+.file.inbook { opacity: .5; }
+.file .check {
+  position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink); display: none; align-items: center; justify-content: center; font-size: 12px;
+}
+.file.checked .check, .file.inbook .check { display: flex; }
+#viewer .dialog { max-width: 95vw; height: 92vh; align-items: stretch; }
+#viewer .big { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+#viewer .big img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.editor {
+  position: relative; margin: 4px 0; background: var(--page); border: 1px solid var(--line);
+  user-select: none; touch-action: none; flex: none;
+}
+.editor .cell { position: absolute; background: var(--frame); border: 1px solid var(--frame-line); }
+.editor .range { position: absolute; background: var(--accent-soft); opacity: .8; border: 2px solid var(--accent); }
+.patterns { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; }
+.pattern { position: relative; padding: 3px; line-height: 0; }
+.pattern svg { width: 100%; height: auto; }
+.pattern .del {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0;
+  border-radius: 9px; font-size: 12px; line-height: 14px; display: none;
+}
+.pattern:hover .del { display: block; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+#closed {
+  position: fixed; inset: 0; background: var(--bg); display: none; z-index: 20;
+  align-items: center; justify-content: center; font-size: 16px;
+}
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; overflow: auto; }
+  main > section { overflow: visible; }
+  main > section + section { border-left: 0; border-top: 1px solid var(--line); }
+  .cols2 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1 data-t>PhotoBook Web GUI</h1>
+  <span id="docName" class="muted"></span>
+  <div class="spacer"></div>
+  <button id="saveButton" data-t>Save</button>
+  <button id="closeButton" data-t>Close</button>
+</header>
+
+<main>
+  <!-- images of the book -->
+  <section>
+    <h2><span data-t>Book images</span> <span id="poolCount"></span><span class="spacer"></span>
+      <button id="gridView" class="icon" title="Thumbnails" data-t-title>▦</button>
+      <button id="listView" class="icon" title="List" data-t-title>☰</button>
+    </h2>
+    <div class="row">
+      <button id="addImages" class="primary" data-t>Add images…</button>
+      <div class="spacer"></div>
+      <button id="clearChosen" data-t>Clear selection</button>
+    </div>
+    <div id="chosenInfo" class="muted" style="margin-bottom:6px"></div>
+    <div id="pool" class="pool grid"></div>
+  </section>
+
+  <!-- current page or double page -->
+  <section class="center">
+    <div>
+      <h2 data-t>Selected images</h2>
+      <div id="chosenBar" class="chosenbar"></div>
+    </div>
+    <div>
+      <h2><span id="layoutsTitle">Layouts</span><span class="spacer"></span>
+        <button id="moreOptions" data-t>More options…</button></h2>
+      <div class="options">
+        <label><span data-t>Spacing</span>
+          <select id="spacing">
+            <option value="tight" data-t>Tight</option>
+            <option value="normal" data-t>Normal</option>
+            <option value="airy" data-t>Airy</option>
+          </select></label>
+        <label><input type="checkbox" id="captions"> <span data-t>Captions</span></label>
+        <label><span data-t>Text block</span>
+          <select id="textblock">
+            <option value="none" data-t>None</option>
+            <option value="top" data-t>Top</option>
+            <option value="bottom" data-t>Bottom</option>
+            <option value="outer" data-t>Outer side</option>
+          </select></label>
+      </div>
+      <div id="layoutsInfo" class="muted" style="margin-top:6px"></div>
+      <div id="layouts" class="layouts" style="margin-top:6px"></div>
+    </div>
+    <div class="stage">
+      <div class="stagebar">
+        <strong id="stageTitle"></strong>
+        <span id="targetInfo" class="muted"></span>
+        <div class="spacer"></div>
+        <button id="clearPages" class="danger" data-t>Erase page content</button>
+      </div>
+      <div id="clearConfirm" class="confirm">
+        <span id="clearQuestion"></span>
+        <button id="clearYes" class="danger" data-t>Erase</button>
+        <button id="clearNo" data-t>Cancel</button>
+      </div>
+      <div class="view"><svg id="view"></svg></div>
+      <div id="message"></div>
+    </div>
+  </section>
+
+  <!-- pages of the book -->
+  <section>
+    <h2 data-t>Pages</h2>
+    <div id="spreads" class="spreads"></div>
+    <div class="addpages">
+      <button id="add1" data-t>+ 1 page</button>
+      <button id="add2" data-t>+ 2 pages</button>
+    </div>
+  </section>
+</main>
+
+<!-- new book -->
+<div id="setup" class="modal">
+  <div class="dialog">
+    <h3 data-t>New photo book</h3>
+    <div class="muted" data-t>No document is open in Scribus: choose the size of the pages.</div>
+    <div class="row"><label class="name" data-t>Unit</label>
+      <select id="pageunit"><option value="cm">cm</option><option value="mm">mm</option></select></div>
+    <div class="row"><label class="name" data-t>Page width</label><input type="number" id="pagewidth" step="0.1" min="1"></div>
+    <div class="row"><label class="name" data-t>Page height</label><input type="number" id="pageheight" step="0.1" min="1"></div>
+    <div class="row"><label class="name" data-t>Margins</label><input type="number" id="margin" step="0.1" min="0"></div>
+    <div class="row"><label class="name" data-t>Bleed</label><input type="number" id="bleed" step="0.1" min="0"></div>
+    <div class="muted" data-t>The first page is alone on the right, the next ones are double pages.</div>
+    <div class="buttons"><button id="create" class="primary" data-t>Create the book</button></div>
+  </div>
+</div>
+
+<!-- add images from the drive -->
+<div id="browser" class="modal">
+  <div class="dialog" style="height:88vh">
+    <h3 data-t>Add images</h3>
+    <div class="folderbar">
+      <button id="parentFolder" title="Parent folder" data-t-title>↑</button>
+      <input id="folder" type="text" spellcheck="false">
+    </div>
+    <div id="dirs" class="dirs"></div>
+    <div id="files" class="files" style="flex:1; overflow:auto; align-content:start"></div>
+    <div class="buttons">
+      <span id="checkedCount" class="muted" style="margin-right:auto"></span>
+      <button id="checkAll" data-t>Select the whole folder</button>
+      <button id="addChecked" class="primary" data-t>Add to the book</button>
+      <button id="closeBrowser" data-t>Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- large image -->
+<div id="viewer" class="modal">
+  <div class="dialog">
+    <div class="row" style="margin:0">
+      <strong id="viewerName"></strong><span id="viewerSize" class="muted"></span>
+      <div class="spacer"></div>
+      <button id="viewerPrev" class="icon">◀</button>
+      <button id="viewerNext" class="icon">▶</button>
+      <button id="viewerClose" data-t>Close</button>
+    </div>
+    <div class="big"><img id="viewerImg" alt=""></div>
+  </div>
+</div>
+
+<!-- more options -->
+<div id="optionsDialog" class="modal">
+  <div class="dialog">
+    <h3 data-t>Layout options</h3>
+    <div class="cols2">
+      <div>
+        <div class="row"><label class="name" data-t>Gap</label>
+          <span id="gapInfo" class="muted"></span></div>
+        <div class="row"><label class="name" for="captionh" data-t>Caption height (mm)</label>
+          <input type="number" id="captionh" step="0.5" min="2"></div>
+        <div class="row"><label class="name" for="textsize" data-t>Text block size (%)</label>
+          <input type="number" id="textsize" step="1" min="5" max="80"></div>
+        <div class="row"><label class="name" for="scale" data-t>Scaling (%)</label>
+          <input type="number" id="scale" step="1" min="10" max="100"></div>
+        <div class="row"><label class="name" data-t>Frame aspect ratio (0 = free)</label>
+          <input type="number" id="aspectwidth" min="0" style="width:52px"> :
+          <input type="number" id="aspectheight" min="0" style="width:52px"></div>
+        <div class="row"><label class="name" for="alignh" data-t>Horizontal alignment</label>
+          <select id="alignh">
+            <option value="Left" data-t>Left</option><option value="Center" data-t>Center</option>
+            <option value="Right" data-t>Right</option>
+          </select></div>
+        <div class="row"><label class="name" for="alignv" data-t>Vertical alignment</label>
+          <select id="alignv">
+            <option value="Top" data-t>Top</option><option value="Center" data-t>Center</option>
+            <option value="Bottom" data-t>Bottom</option>
+          </select></div>
+        <div class="row"><label class="name" for="border" data-t>Frame border</label>
+          <select id="border">
+            <option value="none" data-t>None</option>
+            <option value="dark" data-t>Dark grey</option>
+            <option value="white" data-t>White</option>
+          </select></div>
+      </div>
+      <div>
+        <div><strong data-t>My patterns</strong></div>
+        <div id="myPatterns" class="patterns" style="margin:6px 0"></div>
+        <div id="noMyPatterns" class="muted" data-t>None yet.</div>
+        <div style="margin-top:10px"><strong data-t>New pattern</strong></div>
+        <div class="row">
+          <span data-t>Columns</span> <input type="number" id="cols" min="1" max="12">
+          <span data-t>Rows</span> <input type="number" id="rows" min="1" max="12">
+        </div>
+        <div class="muted" data-t>Drag over cells to merge them, click a merged cell to split it.</div>
+        <div id="editor" class="editor"></div>
+        <div class="row"><button id="savePattern" data-t>Save to my patterns</button></div>
+      </div>
+    </div>
+    <div class="buttons">
+      <span id="optionsMessage" class="muted" style="margin-right:auto"></span>
+      <button id="saveParams" data-t>Save settings as default</button>
+      <button id="closeOptions" class="primary" data-t>Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- save -->
+<div id="saveDialog" class="modal">
+  <div class="dialog">
+    <h3 data-t>Save the book</h3>
+    <label data-t>File</label>
+    <input id="savePath" type="text" spellcheck="false">
+    <div class="buttons">
+      <button id="saveCancel" data-t>Cancel</button>
+      <button id="saveOk" class="primary" data-t>Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- close with unsaved changes -->
+<div id="closeDialog" class="modal">
+  <div class="dialog">
+    <h3 data-t>Close</h3>
+    <div data-t>The book has changes that are not saved.</div>
+    <div class="buttons">
+      <button id="closeCancel" data-t>Cancel</button>
+      <button id="closeAnyway" data-t>Close without saving</button>
+      <button id="closeSave" class="primary" data-t>Save and close</button>
+    </div>
+  </div>
+</div>
+
+<div id="closed" data-t>You can close this tab.</div>
+
+<script>
+'use strict';
+const token = new URLSearchParams(location.search).get('token');
+const $ = id => document.getElementById(id);
+
+let S = null;             // state from the script: strings, params, patterns
+let strings = {};
+let doc = null;           // {name, unit, pages}
+let pool = [];            // images of the book
+let chosen = [];          // paths of the images selected for a layout, in order
+let current = 0;          // index of the current spread
+let target = new Set();   // page numbers the layouts are made for
+let picked = null;        // name of the image frame clicked, to replace its image
+let dirty = false;        // changes not saved
+let closeAfterSave = false;
+let listing = null;       // folder shown in the add images dialog
+let checked = new Set();  // images checked in the add images dialog
+let viewerList = [], viewerIndex = 0;
+const t = s => strings[s] || s;
+const fmt = (s, ...args) => args.reduce((r, a) => r.replace('{}', a), t(s));
+
+// ---------- server
+
+async function api(path, body) {
+  const r = await fetch(path + '?token=' + token, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+const imageUrl = (path, mode) => '/image?token=' + token + '&mode=' + mode
+  + '&path=' + encodeURIComponent(path);
+
+function message(text, isError) {
+  $('message').textContent = text || '';
+  $('message').className = isError ? 'error' : '';
+}
+async function run(action) {
+  try { return await action(); }
+  catch (e) { message(e.message, true); }
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
+
+// ---------- units: the options are in mm, the document may use another unit
+
+const MM = {pt: 72 / 25.4, mm: 1, in: 1 / 25.4, p: 72 / 25.4 / 12, cm: 0.1, c: 1 / 4.5118};
+const mm = v => v * (MM[doc.unit] || 1);
+
+// ---------- patterns (the Layout Maker)
+
+function grid(cols, rows) {
+  const cells = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push([c, r, 1, 1]);
+  return {cols, rows, cells};
+}
+function normalize(p) {    // frames in reading order
+  return {cols: p.cols, rows: p.rows,
+    cells: p.cells.map(c => c.slice()).sort((a, b) => a[1] - b[1] || a[0] - b[0])};
+}
+const key = p => JSON.stringify(normalize(p));
+const mirror = p => normalize({cols: p.cols, rows: p.rows,
+  cells: p.cells.map(([c, r, cs, rs]) => [p.cols - c - cs, r, cs, rs])});
+
+// frame rectangles of pattern p in area [x, y, w, h] (same formula as the Tkinter version)
+function layout(p, area, o) {
+  const [x, y, W, H] = area, C = p.cols, R = p.rows;
+  const gap = o.gap, cap = Math.max(o.captionh, 0), scale = o.scale / 100;
+  let uw = (scale * W - gap * (C - 1)) / C;
+  let uh = (scale * H - gap * (R - 1) - cap * R) / R;
+  if (o.aspect) {
+    if (o.aspect < uw / uh) uw = uh * o.aspect; else uh = uw / o.aspect;
+  }
+  if (!(uw > 0 && uh > 0)) return null;
+  const bw = C * uw + (C - 1) * gap, bh = R * (uh + cap) + (R - 1) * gap;
+  const ox = o.alignh === 'Left' ? x : o.alignh === 'Right' ? x + W - bw : x + (W - bw) / 2;
+  const oy = o.alignv === 'Top' ? y : o.alignv === 'Bottom' ? y + H - bh : y + (H - bh) / 2;
+  return normalize(p).cells.map(([c, r, cs, rs]) => {
+    const f = {x: ox + c * (uw + gap), y: oy + r * (uh + cap + gap),
+      w: cs * uw + (cs - 1) * gap, h: rs * uh + (rs - 1) * (gap + cap), caption: null};
+    if (o.captionh > 0) f.caption = [f.x, f.y + f.h, f.w, o.captionh];
+    return f;
+  });
+}
+
+// all patterns with n frames: mine, built-in, and their mirror images
+function patternsWith(n) {
+  const seen = new Set(), list = [];
+  for (const p of S.myPatterns.concat(S.patterns)) {
+    if (p.cells.length !== n) continue;
+    for (const q of [normalize(p), mirror(p)]) {
+      if (!seen.has(key(q))) { seen.add(key(q)); list.push(q); }
+    }
+  }
+  return list;
+}
+
+// ---------- pages and double pages
+
+function spreads() {
+  const pages = doc.pages, out = [];
+  for (let i = 0; i < pages.length; i++) {
+    if (pages[i].side === 0 && pages[i + 1] && pages[i + 1].side === 2) {
+      out.push([pages[i], pages[i + 1]]); i++;
+    } else out.push([pages[i]]);
+  }
+  return out;
+}
+const currentSpread = () => spreads()[current] || [];
+const pageLabel = sp => sp.length === 2 ? fmt('Pages {}–{}', sp[0].page, sp[1].page) : fmt('Page {}', sp[0].page);
+const foreign = p => p.items.some(i => !i.app);
+
+// used images: path -> page numbers
+function usedImages() {
+  const used = {};
+  if (!doc) return used;
+  for (const p of doc.pages) for (const i of p.items) {
+    if (i.image) (used[i.image] = used[i.image] || []).push(p.page);
+  }
+  return used;
+}
+
+// svg of pages side by side; items are drawn with their images
+function pagesSvg(pages, opts) {
+  opts = opts || {};
+  const h = Math.max(...pages.map(p => p.height)), w = pages.reduce((s, p) => s + p.width, 0);
+  const sw = Math.max(w, h) / (opts.large ? 500 : 120), pad = opts.large ? sw * 4 : sw;
+  let s = `<svg viewBox="${-pad} ${-pad} ${w + 2 * pad} ${h + 2 * pad}" xmlns="http://www.w3.org/2000/svg">`;
+  let ox = 0;
+  const id = opts.id || 'v';
+  pages.forEach((p, pi) => {
+    s += `<g transform="translate(${ox},0)">`
+      + `<rect class="pg" width="${p.width}" height="${p.height}"/>`;
+    if (opts.large) {
+      const m = p.margins;
+      s += `<rect class="margin" x="${m.left}" y="${m.top}" width="${p.width - m.left - m.right}"`
+        + ` height="${p.height - m.top - m.bottom}" stroke-width="${sw}" stroke-dasharray="${sw * 4}"/>`
+        + `<rect class="pagehit" data-page="${p.page}" width="${p.width}" height="${p.height}"/>`;
+    }
+    s += `<rect class="pgline" width="${p.width}" height="${p.height}" stroke-width="${sw}"/></g>`;
+    ox += p.width;
+  });
+  // items after the pages: an image over both pages is not hidden by the right page
+  ox = 0;
+  pages.forEach((p, pi) => {
+    s += `<g transform="translate(${ox},0)">`;
+    const items = opts.frames ? opts.frames.filter(f => f.page === p.page) : p.items;
+    items.forEach((it, i) => { s += itemSvg(it, `${id}${pi}_${i}`, sw, opts); });
+    if (opts.large && target.has(p.page)) {
+      s += `<rect class="target" x="${sw}" y="${sw}" width="${p.width - sw * 2}"`
+        + ` height="${p.height - sw * 2}" stroke-width="${sw * 2}" pointer-events="none"/>`;
+    }
+    s += '</g>';
+    ox += p.width;
+  });
+  return s + '</svg>';
+}
+
+function itemSvg(it, id, sw, opts) {
+  const kind = it.kind === 'caption' ? 'text' : it.kind;
+  const r = `x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}"`;
+  let s = `<g class="frame" data-name="${esc(it.name || '')}" data-kind="${kind}">`;
+  if (kind === 'image') {
+    s += `<clipPath id="c${id}"><rect ${r}/></clipPath><rect class="fr" ${r} stroke-width="${sw}"/>`;
+    if (it.image && isPreview(it.image)) {
+      s += `<image href="${imageUrl(it.image, opts.large ? 'full' : 'auto')}" ${r}`
+        + ` preserveAspectRatio="xMidYMid slice" clip-path="url(#c${id})"/>`;
+    }
+  } else if (kind === 'text') {
+    s += `<rect class="tx" ${r} stroke-width="${sw}"/>`;
+  } else {
+    s += `<rect class="other" ${r} stroke-width="${sw}"/>`;
+  }
+  if (opts.large && it.name && it.name === picked) {
+    s += `<rect class="pick" ${r} stroke-width="${sw * 5}"/>`;
+  }
+  return s + '</g>';
+}
+const isPreview = path => /\.(jpe?g|png|gif|bmp|webp)$/i.test(path);
+
+function renderSpreads() {
+  const box = $('spreads'), list = spreads();
+  box.innerHTML = '';
+  list.forEach((sp, i) => {
+    const b = document.createElement('button');
+    b.className = 'spread' + (i === current ? ' current' : '');
+    b.innerHTML = pagesSvg(sp, {id: 's' + i}) + `<div class="label">${esc(pageLabel(sp))}</div>`;
+    b.onclick = () => selectSpread(i);
+    box.appendChild(b);
+  });
+  const last = doc.pages[doc.pages.length - 1];
+  $('add2').disabled = !last || last.side === 0;    // a single left page must be completed first
+  const cur = box.children[current];
+  if (cur) cur.scrollIntoView({block: 'nearest'});
+}
+
+function selectSpread(i) {
+  current = Math.max(0, Math.min(i, spreads().length - 1));
+  picked = null;
+  // target: the empty pages of the double page, or all of them
+  const sp = currentSpread(), empty = sp.filter(p => !p.items.length);
+  target = new Set((empty.length ? empty : sp).map(p => p.page));
+  hideClearConfirm();
+  message('');
+  renderAll();
+}
+
+function renderStage() {
+  const sp = currentSpread();
+  $('stageTitle').textContent = sp.length ? pageLabel(sp) : '';
+  const tp = sp.filter(p => target.has(p.page));
+  $('targetInfo').textContent = sp.length === 2
+    ? t('Click a page to choose where the layout goes:') + ' '
+      + (tp.length === 2 ? t('both pages') : tp.length ? (tp[0] === sp[0] ? t('left page') : t('right page')) : t('none'))
+    : '';
+  $('clearPages').disabled = !tp.some(p => p.items.length);
+  const svg = pagesSvg(sp, {large: true});
+  $('view').outerHTML = svg.replace('<svg ', '<svg id="view" ');
+  const view = $('view');
+  view.querySelectorAll('.pagehit').forEach(r => r.onclick = () => toggleTarget(+r.dataset.page));
+  view.querySelectorAll('.frame').forEach(g => {
+    g.onclick = e => {
+      e.stopPropagation();
+      if (g.dataset.kind === 'image' && g.dataset.name) {
+        picked = picked === g.dataset.name ? null : g.dataset.name;
+        renderStage(); renderChosenBar();
+      } else toggleTarget(pageOfItem(g.dataset.name));
+    };
+  });
+}
+const pageOfItem = name => (doc.pages.find(p => p.items.some(i => i.name === name)) || {}).page;
+
+function toggleTarget(page) {
+  if (!page) return;
+  const sp = currentSpread();
+  if (sp.length === 1) target = new Set([page]);
+  else if (target.has(page) && target.size === 1) target = new Set(sp.map(p => p.page));
+  else if (target.has(page)) target.delete(page);
+  else target.add(page);
+  hideClearConfirm();
+  renderStage(); renderLayouts();
+}
+
+// ---------- layout proposals for the selected images on the target pages
+
+const SPACING = {tight: 2, normal: 5, airy: 10};
+
+function options() {
+  const num = id => parseFloat($(id).value) || 0;
+  const aw = num('aspectwidth'), ah = num('aspectheight');
+  return {
+    gap: mm(SPACING[$('spacing').value] || 5), scale: num('scale') || 100,
+    aspect: aw > 0 && ah > 0 ? aw / ah : 0, alignh: $('alignh').value, alignv: $('alignv').value,
+    captionh: $('captions').checked ? mm(num('captionh') || 7) : 0,
+    textblock: $('textblock').value, textsize: (num('textsize') || 25) / 100,
+    airy: $('spacing').value === 'airy',
+  };
+}
+
+// area of a page for the photos, and the text block if any: [x, y, w, h]
+// outerLeft: true for a left page, false for a right page, null for a single page
+function pageAreas(p, o, outerLeft) {
+  const m = p.margins;
+  let a = [m.left, m.top, p.width - m.left - m.right, p.height - m.top - m.bottom];
+  if (o.airy) { const d = o.gap; a = [a[0] + d, a[1] + d, a[2] - 2 * d, a[3] - 2 * d]; }
+  let text = null;
+  const [x, y, w, h] = a, g = o.gap;
+  if (o.textblock === 'top' || o.textblock === 'bottom' || (o.textblock === 'outer' && outerLeft === null)) {
+    const th = h * o.textsize;
+    if (o.textblock === 'top') { text = [x, y, w, th]; a = [x, y + th + g, w, h - th - g]; }
+    else { text = [x, y + h - th, w, th]; a = [x, y, w, h - th - g]; }
+  } else if (o.textblock === 'outer') {
+    const tw = w * o.textsize;
+    if (outerLeft) { text = [x, y, tw, h]; a = [x + tw + g, y, w - tw - g, h]; }
+    else { text = [x + w - tw, y, tw, h]; a = [x, y, w - tw - g, h]; }
+  }
+  return {area: a, text};
+}
+
+// frames of a pattern on a page: image frames, captions and text block
+function pageFrames(p, pattern, o, outerLeft) {
+  const {area, text} = pageAreas(p, o, outerLeft);
+  const rects = layout(pattern, area, o);
+  if (!rects) return null;
+  const frames = [];
+  for (const r of rects) {
+    frames.push({page: p.page, kind: 'image', x: r.x, y: r.y, w: r.w, h: r.h});
+    if (r.caption) frames.push({page: p.page, kind: 'caption', x: r.caption[0], y: r.caption[1],
+      w: r.caption[2], h: r.caption[3]});
+  }
+  if (text) frames.push({page: p.page, kind: 'text', x: text[0], y: text[1], w: text[2], h: text[3]});
+  return frames;
+}
+
+// one image over both pages of a double page (the frame belongs to the left page)
+function panoramaFrames(L, R, o) {
+  const spread = {page: L.page, width: L.width + R.width, height: Math.max(L.height, R.height),
+    margins: {top: Math.max(L.margins.top, R.margins.top), bottom: Math.max(L.margins.bottom, R.margins.bottom),
+      left: L.margins.left, right: R.margins.right}};
+  return pageFrames(spread, grid(1, 1), Object.assign({}, o,
+    {textblock: o.textblock === 'outer' ? 'bottom' : o.textblock}), null);
+}
+
+const orientation = r => r > 1.1 ? 'L' : r < 0.9 ? 'P' : 'S';
+
+// put the images in the image frames, in order, preferring frames of the same orientation
+function assignImages(frames, images) {
+  const rest = images.slice();
+  let mismatches = 0;
+  for (const f of frames.filter(f => f.kind === 'image')) {
+    if (!rest.length) break;
+    const want = orientation(f.w / f.h);
+    let i = rest.findIndex(im => {
+      const o = im.size ? orientation(im.size[0] / im.size[1]) : 'S';
+      return o === want || o === 'S' || want === 'S';
+    });
+    if (i < 0) { i = 0; mismatches++; }
+    f.image = rest.splice(i, 1)[0].path;
+  }
+  return mismatches;
+}
+
+function proposals() {
+  const n = chosen.length, sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  if (!n || !tp.length || tp.some(foreign)) return [];
+  const o = options(), images = chosen.map(path => pool.find(im => im.path === path)).filter(Boolean);
+  const outer = p => p.side === 0 ? true : p.side === 2 ? false : null;
+  const list = [];
+  const add = frames => {
+    if (!frames) return;
+    const mismatches = assignImages(frames, images);
+    list.push({frames, mismatches});
+  };
+  if (tp.length === 1) {
+    for (const p of patternsWith(n)) add(pageFrames(tp[0], p, o, outer(tp[0])));
+  } else {
+    const [L, R] = tp;
+    if (n === 1) add(panoramaFrames(L, R, o));
+    // k images on the left page, n - k on the right one, the most balanced first
+    const splits = [];
+    for (let k = 1; k < n; k++) splits.push(k);
+    splits.sort((a, b) => Math.abs(2 * a - n) - Math.abs(2 * b - n) || b - a);
+    for (const k of splits) {
+      const left = patternsWith(k).slice(0, 4), right = patternsWith(n - k).slice(0, 4);
+      let count = 0;
+      for (const lp of left) for (const rp of right) {
+        if (count++ >= 8) break;
+        const lf = pageFrames(L, lp, o, true), rf = pageFrames(R, rp, o, false);
+        if (lf && rf) add(lf.concat(rf));
+      }
+    }
+  }
+  // the proposals whose frames fit the orientation of the images first
+  return list.map((p, i) => [p, i]).sort((a, b) => a[0].mismatches - b[0].mismatches || a[1] - b[1])
+    .map(a => a[0]).slice(0, 30);
+}
+
+function renderLayouts() {
+  const n = chosen.length, sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  const box = $('layouts');
+  box.innerHTML = '';
+  box.className = 'layouts' + (tp.length === 1 ? ' single' : '');
+  $('layoutsTitle').textContent = n ? fmt('Layouts for {} images', n) : t('Layouts');
+  let info = '';
+  if (!tp.length) info = t('Click a page below to choose where the layout goes.');
+  else if (tp.some(foreign)) info = t('This page already has content: erase it to make a new layout.');
+  else if (!n) info = t('Select images in the left panel to see the layouts.');
+  const list = info ? [] : proposals();
+  if (!info && !list.length) info = t('No layout for this number of images: create a pattern in More options.');
+  if (!info && tp.some(p => p.items.length)) info = t('Choosing a layout replaces the current one.');
+  $('layoutsInfo').textContent = info;
+  list.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.className = 'layout';
+    b.innerHTML = pagesSvg(tp, {frames: p.frames, id: 'l' + i});
+    b.onclick = () => apply(tp, p.frames);
+    box.appendChild(b);
+  });
+}
+
+async function apply(tp, frames) {
+  await run(async () => {
+    const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value});
+    doc = r.document; dirty = true; picked = null;
+    message(r.errors.length ? t('Errors:') + ' ' + r.errors.join('; ') : t('Layout applied.'), r.errors.length > 0);
+    renderAll();
+  });
+}
+
+// ---------- erase pages
+
+function showClearConfirm() {
+  const pages = currentSpread().filter(p => target.has(p.page) && p.items.length).map(p => p.page);
+  $('clearQuestion').textContent = fmt(pages.length > 1 ? 'Erase everything on pages {}?' : 'Erase everything on page {}?',
+    pages.join(', '));
+  $('clearConfirm').style.display = 'flex';
+}
+function hideClearConfirm() { $('clearConfirm').style.display = 'none'; }
+async function clearPages() {
+  const pages = currentSpread().filter(p => target.has(p.page)).map(p => p.page);
+  hideClearConfirm();
+  await run(async () => {
+    doc = (await api('/api/clear', {pages})).document;
+    dirty = true; picked = null;
+    message('');
+    renderAll();
+  });
+}
+
+// ---------- images of the book
+
+function renderPool() {
+  const box = $('pool'), used = usedImages();
+  box.innerHTML = '';
+  $('poolCount').textContent = pool.length ? '(' + pool.length + ')' : '';
+  if (!pool.length) box.innerHTML = `<div class="muted" style="grid-column:1/-1">${esc(t('Add the images of your book from your drive.'))}</div>`;
+  pool.forEach((im, idx) => {
+    const n = chosen.indexOf(im.path);
+    const d = document.createElement('div');
+    d.className = 'item' + (n >= 0 ? ' chosen' : '') + (im.exists === false ? ' missing' : '');
+    const pages = used[im.path];
+    d.title = im.name + (im.size ? ` (${im.size[0]} × ${im.size[1]})` : '');
+    d.innerHTML = `<div class="img">${thumbHtml(im)}</div>`
+      + (n >= 0 ? `<span class="badge">${n + 1}</span>` : '')
+      + `<span class="name"></span>`
+      + (pages ? `<span class="used">${esc(fmt('p. {}', pages.join(', ')))}</span>` : '')
+      + `<span class="tools"><button class="see" title="${esc(t('Show large'))}">⤢</button>`
+      + `<button class="remove" title="${esc(t('Remove from the book'))}">×</button></span>`;
+    d.querySelector('.name').textContent = im.name;
+    d.onclick = () => toggleChosen(im.path);
+    d.ondblclick = () => showImage(pool, idx);
+    d.querySelector('.see').onclick = e => { e.stopPropagation(); showImage(pool, idx); };
+    d.querySelector('.remove').onclick = e => { e.stopPropagation(); removeFromPool(im.path); };
+    box.appendChild(d);
+  });
+  $('chosenInfo').textContent = chosen.length
+    ? fmt('{} selected for the layout', chosen.length) : t('Click images to select them for a layout.');
+  $('clearChosen').disabled = !chosen.length;
+}
+
+const ROTATION = {3: 180, 4: 180, 5: 90, 6: 90, 7: -90, 8: -90};
+function thumbHtml(im) {
+  if (!im.preview) return esc(im.name.split('.').pop().toUpperCase());
+  const rot = im.thumb ? ROTATION[im.orientation] : 0;
+  return `<img loading="lazy" src="${imageUrl(im.path, 'thumb')}"${rot ? ` style="transform:rotate(${rot}deg)"` : ''} alt="">`;
+}
+
+function renderChosenBar() {
+  const box = $('chosenBar');
+  box.innerHTML = '';
+  box.className = 'chosenbar' + (picked ? ' picking' : '');
+  if (!chosen.length) box.innerHTML = `<div class="muted">${esc(t('No image selected.'))}</div>`;
+  chosen.forEach((path, i) => {
+    const im = pool.find(p => p.path === path);
+    if (!im) return;
+    const d = document.createElement('div');
+    d.className = 'item';
+    d.title = picked ? t('Put this image in the selected frame') : im.name;
+    d.innerHTML = `<div class="img">${thumbHtml(im)}</div><span class="badge">${i + 1}</span>`;
+    d.onclick = () => picked ? replaceImage(path)
+      : showImage(chosen.map(p => pool.find(im => im.path === p)), i);
+    box.appendChild(d);
+  });
+  if (picked) message(chosen.length ? t('Click one of the selected images to put it in the frame.')
+    : t('Select images in the left panel, then click one of them to put it in the frame.'));
+}
+
+async function replaceImage(path) {
+  const frame = picked;
+  await run(async () => {
+    doc = (await api('/api/setimage', {frame, image: path})).document;
+    dirty = true; picked = null;
+    message('');
+    renderAll();
+  });
+}
+
+function toggleChosen(path) {
+  const i = chosen.indexOf(path);
+  if (i >= 0) chosen.splice(i, 1); else chosen.push(path);
+  renderPool(); renderChosenBar(); renderLayouts();
+}
+
+async function setPool(paths) {
+  await run(async () => {
+    pool = (await api('/api/pool', {images: paths})).pool;
+    chosen = chosen.filter(p => paths.includes(p));
+    renderPool();
+    if (doc) { renderChosenBar(); renderLayouts(); }
+  });
+}
+const removeFromPool = path => setPool(pool.map(p => p.path).filter(p => p !== path));
+
+function setPoolView(mode) {
+  $('pool').className = 'pool ' + mode;
+  $('gridView').classList.toggle('on', mode === 'grid');
+  $('listView').classList.toggle('on', mode === 'list');
+  try { localStorage.setItem('photobook.poolview', mode); } catch (e) {}
+}
+
+// ---------- large image
+
+function showImage(list, i) {
+  viewerList = list.filter(Boolean); viewerIndex = i;
+  const im = viewerList[i];
+  if (!im) return;
+  $('viewerName').textContent = im.name;
+  $('viewerSize').textContent = im.size ? `${im.size[0]} × ${im.size[1]}` : '';
+  $('viewerImg').src = im.preview ? imageUrl(im.path, 'full') : '';
+  $('viewerPrev').disabled = i <= 0;
+  $('viewerNext').disabled = i >= viewerList.length - 1;
+  $('viewer').classList.add('open');
+}
+
+// ---------- add images from the drive
+
+async function browse(folder) {
+  await run(async () => {
+    listing = await api('/api/browse', {folder});
+    $('folder').value = listing.folder;
+    checked = new Set();
+    renderBrowser();
+  });
+}
+function renderBrowser() {
+  $('parentFolder').disabled = !listing.parent;
+  const dirs = $('dirs');
+  dirs.innerHTML = '';
+  for (const dir of listing.dirs) {
+    const b = document.createElement('button');
+    b.textContent = '📁 ' + dir.name;
+    b.onclick = () => browse(dir.path);
+    dirs.appendChild(b);
+  }
+  const box = $('files'), inBook = new Set(pool.map(p => p.path));
+  box.innerHTML = '';
+  if (!listing.images.length) box.innerHTML = `<div class="muted">${esc(t('No images in this folder.'))}</div>`;
+  listing.images.forEach((im, i) => {
+    const b = document.createElement('button');
+    const isIn = inBook.has(im.path);
+    b.className = 'file' + (checked.has(im.path) ? ' checked' : '') + (isIn ? ' inbook' : '');
+    b.title = im.name + (isIn ? ' — ' + t('already in the book') : '');
+    b.innerHTML = `<div class="img">${thumbHtml(im)}</div><div class="name"></div><span class="check">✓</span>`;
+    b.querySelector('.name').textContent = im.name;
+    b.onclick = () => {
+      if (isIn) return;
+      checked.has(im.path) ? checked.delete(im.path) : checked.add(im.path);
+      renderBrowser();
+    };
+    b.ondblclick = () => showImage(listing.images, i);
+    box.appendChild(b);
+  });
+  $('checkedCount').textContent = checked.size ? fmt('{} selected', checked.size) : '';
+  $('addChecked').disabled = !checked.size;
+}
+async function addChecked() {
+  const paths = pool.map(p => p.path);
+  for (const im of listing.images) if (checked.has(im.path)) paths.push(im.path);
+  await setPool(paths);
+  checked = new Set();
+  renderBrowser();
+  $('checkedCount').textContent = t('Images added to the book.');
+}
+
+// ---------- pattern editor (in More options)
+
+let pattern = grid(2, 2), drag = null;
+function renderEditor() {
+  const ed = $('editor'), p0 = doc && doc.pages[0];
+  const W = p0 ? p0.width : 1, H = p0 ? p0.height : 1, size = 200;
+  const w = W >= H ? size : size * W / H, h = W >= H ? size * H / W : size;
+  ed.style.width = w + 'px'; ed.style.height = h + 'px';
+  ed.innerHTML = '';
+  const cw = w / pattern.cols, ch = h / pattern.rows, pad = 2;
+  for (const [c, r, cs, rs] of pattern.cells) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    Object.assign(d.style, {left: c * cw + pad + 'px', top: r * ch + pad + 'px',
+      width: cs * cw - 2 * pad + 'px', height: rs * ch - 2 * pad + 'px'});
+    ed.appendChild(d);
+  }
+  if (drag) {
+    const c0 = Math.min(drag.c0, drag.c1), c1 = Math.max(drag.c0, drag.c1);
+    const r0 = Math.min(drag.r0, drag.r1), r1 = Math.max(drag.r0, drag.r1);
+    const d = document.createElement('div');
+    d.className = 'range';
+    Object.assign(d.style, {left: c0 * cw + 'px', top: r0 * ch + 'px',
+      width: (c1 - c0 + 1) * cw + 'px', height: (r1 - r0 + 1) * ch + 'px'});
+    ed.appendChild(d);
+  }
+}
+function editorCell(e) {
+  const r = $('editor').getBoundingClientRect();
+  const c = Math.floor((e.clientX - r.left) / r.width * pattern.cols);
+  const w = Math.floor((e.clientY - r.top) / r.height * pattern.rows);
+  return [Math.max(0, Math.min(pattern.cols - 1, c)), Math.max(0, Math.min(pattern.rows - 1, w))];
+}
+$('editor').addEventListener('pointerdown', e => {
+  const [c, r] = editorCell(e);
+  drag = {c0: c, r0: r, c1: c, r1: r};
+  $('editor').setPointerCapture(e.pointerId);
+  renderEditor();
+});
+$('editor').addEventListener('pointermove', e => {
+  if (!drag) return;
+  [drag.c1, drag.r1] = editorCell(e);
+  renderEditor();
+});
+$('editor').addEventListener('pointerup', () => {
+  if (!drag) return;
+  const c0 = Math.min(drag.c0, drag.c1), c1 = Math.max(drag.c0, drag.c1);
+  const r0 = Math.min(drag.r0, drag.r1), r1 = Math.max(drag.r0, drag.r1);
+  drag = null;
+  pattern = mergeCells(pattern, c0, r0, c1, r1);
+  renderEditor();
+});
+
+// merge the cells in columns c0..c1, rows r0..r1; a click on a merged cell splits it
+function mergeCells(p, c0, r0, c1, r1) {
+  const inside = (c, r) => c >= c0 && c <= c1 && r >= r0 && r <= r1;
+  let cells = [];
+  if (c0 === c1 && r0 === r1) {
+    for (const cell of p.cells) {
+      const [c, r, cs, rs] = cell;
+      if (c0 >= c && c0 < c + cs && r0 >= r && r0 < r + rs) {
+        for (let y = r; y < r + rs; y++) for (let x = c; x < c + cs; x++) cells.push([x, y, 1, 1]);
+      } else cells.push(cell);
+    }
+    return normalize({cols: p.cols, rows: p.rows, cells});
+  }
+  for (const cell of p.cells) {
+    const [c, r, cs, rs] = cell;
+    if (c + cs - 1 < c0 || c > c1 || r + rs - 1 < r0 || r > r1) { cells.push(cell); continue; }
+    // overlapping cell: keep its parts outside the merged range as single cells
+    for (let y = r; y < r + rs; y++) for (let x = c; x < c + cs; x++) {
+      if (!inside(x, y)) cells.push([x, y, 1, 1]);
+    }
+  }
+  cells.push([c0, r0, c1 - c0 + 1, r1 - r0 + 1]);
+  return normalize({cols: p.cols, rows: p.rows, cells});
+}
+
+function renderMyPatterns() {
+  const box = $('myPatterns');
+  box.innerHTML = '';
+  const p0 = doc && doc.pages[0];
+  const page = {page: 0, width: p0 ? p0.width : 100, height: p0 ? p0.height : 100};
+  S.myPatterns.forEach((p, i) => {
+    const d = document.createElement('div');
+    d.className = 'pattern';
+    const frames = layout(p, [0, 0, page.width, page.height],
+      {gap: page.width / 30, scale: 100, captionh: 0, aspect: 0})
+      .map(r => ({page: 0, kind: 'image', x: r.x, y: r.y, w: r.w, h: r.h}));
+    d.innerHTML = pagesSvg([page], {frames, id: 'm' + i})
+      + `<button class="del" title="${esc(t('Delete'))}">×</button>`;
+    d.querySelector('.del').onclick = () => savePatterns(S.myPatterns.filter((_, j) => j !== i));
+    box.appendChild(d);
+  });
+  $('noMyPatterns').style.display = S.myPatterns.length ? 'none' : '';
+}
+async function savePatterns(list, text) {
+  try {
+    S.myPatterns = (await api('/api/patterns', list)).myPatterns;
+    $('optionsMessage').textContent = text || '';
+    renderMyPatterns();
+    if (doc) renderLayouts();
+  } catch (e) { $('optionsMessage').textContent = e.message; }
+}
+function saveNewPattern() {
+  if (S.myPatterns.concat(S.patterns).some(p => key(p) === key(pattern) || key(mirror(p)) === key(pattern))) {
+    $('optionsMessage').textContent = t('This pattern is already in the list.');
+    return;
+  }
+  savePatterns(S.myPatterns.concat([pattern]), t('Pattern saved.'));
+}
+
+// ---------- settings
+
+const PARAMS = ['spacing', 'textblock', 'captionh', 'textsize', 'scale', 'aspectwidth', 'aspectheight',
+  'alignh', 'alignv', 'border', 'pageunit', 'pagewidth', 'pageheight', 'margin', 'bleed'];
+function loadParams(p) {
+  for (const k of PARAMS) if (p[k] !== undefined && p[k] !== '') $(k).value = p[k];
+  $('captions').checked = p.captions === '1';
+}
+async function saveParams() {
+  const p = {captions: $('captions').checked ? '1' : '0', cols: pattern.cols, rows: pattern.rows};
+  for (const k of PARAMS) p[k] = $(k).value;
+  if (listing) p.imagefolder = listing.folder;
+  try {
+    await api('/api/params', p);
+    $('optionsMessage').textContent = t('Settings saved.');
+  } catch (e) { $('optionsMessage').textContent = e.message; }
+}
+function updateGapInfo() {
+  $('gapInfo').textContent = SPACING[$('spacing').value] + ' mm';
+}
+
+// ---------- document: new, pages, save, close
+
+async function createBook() {
+  const f = $('pageunit').value === 'cm' ? 10 : 1, num = id => (parseFloat($(id).value) || 0) * f;
+  await run(async () => {
+    doc = (await api('/api/newdocument', {width: num('pagewidth'), height: num('pageheight'),
+      margin: num('margin'), bleed: num('bleed')})).document;
+    dirty = true;
+    $('setup').classList.remove('open');
+    selectSpread(0);
+  });
+}
+
+async function addPages(count) {
+  await run(async () => {
+    doc = (await api('/api/addpages', {count})).document;
+    dirty = true;
+    selectSpread(spreads().length - 1);
+  });
+}
+
+const isAbsolute = p => /^(\/|[A-Za-z]:[\\/])/.test(p || '');
+async function save(path) {
+  await run(async () => {
+    doc = (await api('/api/save', {path})).document;
+    dirty = false;
+    renderHeader();
+    message(fmt('Saved in {}', doc.name));
+    if (closeAfterSave) quit();
+  });
+}
+function askSave() {
+  if (isAbsolute(doc.name)) return save(null);
+  const folder = pool.length ? pool[0].path.replace(/[\\/][^\\/]*$/, '') : (S.folder || '');
+  $('savePath').value = folder + (folder.includes('\\') ? '\\' : '/') + t('PhotoBook') + '.sla';
+  $('saveDialog').classList.add('open');
+  $('savePath').focus();
+}
+
+async function quit() {
+  await api('/api/quit').catch(() => {});
+  $('closed').style.display = 'flex';
+  window.close();
+}
+
+function renderHeader() {
+  $('docName').textContent = doc ? doc.name : '';
+  $('saveButton').disabled = !doc;
+}
+
+// ---------- start
+
+function renderAll() {
+  if (!doc) return;
+  current = Math.min(current, spreads().length - 1);
+  renderHeader();
+  renderSpreads();
+  renderStage();
+  renderPool();
+  renderChosenBar();
+  renderLayouts();
+}
+
+function translatePage() {
+  document.querySelectorAll('[data-t]').forEach(e => {
+    if (e.children.length === 0) e.textContent = t(e.textContent.trim());
+  });
+  document.querySelectorAll('[data-t-title]').forEach(e => e.title = t(e.title));
+  document.title = t('PhotoBook Web GUI');
+}
+
+function closeModals() {
+  for (const id of ['browser', 'viewer', 'optionsDialog', 'saveDialog', 'closeDialog']) $(id).classList.remove('open');
+}
+
+async function start() {
+  S = await api('/api/state');
+  strings = S.strings;
+  doc = S.document;
+  pool = S.pool;
+  translatePage();
+  loadParams(S.params);
+  pattern = grid(parseInt(S.params.cols) || 2, parseInt(S.params.rows) || 2);
+  $('cols').value = pattern.cols; $('rows').value = pattern.rows;
+  let view = 'grid';
+  try { view = localStorage.getItem('photobook.poolview') || 'grid'; } catch (e) {}
+  setPoolView(view);
+  updateGapInfo();
+
+  $('gridView').onclick = () => setPoolView('grid');
+  $('listView').onclick = () => setPoolView('list');
+  $('addImages').onclick = () => { $('browser').classList.add('open'); browse(listing ? listing.folder : S.folder); };
+  $('clearChosen').onclick = () => { chosen = []; picked = null; message(''); renderAll(); };
+  $('closeBrowser').onclick = () => $('browser').classList.remove('open');
+  $('parentFolder').onclick = () => browse(listing.parent);
+  $('folder').onkeydown = e => { if (e.key === 'Enter') browse($('folder').value); };
+  $('checkAll').onclick = () => {
+    const inBook = new Set(pool.map(p => p.path));
+    for (const im of listing.images) if (!inBook.has(im.path)) checked.add(im.path);
+    renderBrowser();
+  };
+  $('addChecked').onclick = addChecked;
+  $('viewerClose').onclick = () => $('viewer').classList.remove('open');
+  $('viewerPrev').onclick = () => showImage(viewerList, viewerIndex - 1);
+  $('viewerNext').onclick = () => showImage(viewerList, viewerIndex + 1);
+  $('moreOptions').onclick = () => {
+    $('optionsMessage').textContent = '';
+    renderMyPatterns(); renderEditor(); $('optionsDialog').classList.add('open');
+  };
+  $('closeOptions').onclick = () => $('optionsDialog').classList.remove('open');
+  $('saveParams').onclick = saveParams;
+  $('savePattern').onclick = saveNewPattern;
+  $('cols').onchange = $('rows').onchange = () => {
+    pattern = grid(Math.max(1, Math.min(12, parseInt($('cols').value) || 1)),
+      Math.max(1, Math.min(12, parseInt($('rows').value) || 1)));
+    renderEditor();
+  };
+  for (const id of ['spacing', 'captions', 'textblock', 'captionh', 'textsize', 'scale', 'aspectwidth',
+    'aspectheight', 'alignh', 'alignv']) {
+    $(id).addEventListener('input', () => { updateGapInfo(); if (doc) renderLayouts(); });
+  }
+  $('clearPages').onclick = showClearConfirm;
+  $('clearNo').onclick = hideClearConfirm;
+  $('clearYes').onclick = clearPages;
+  $('add1').onclick = () => addPages(1);
+  $('add2').onclick = () => addPages(2);
+  $('create').onclick = createBook;
+  $('saveButton').onclick = () => { closeAfterSave = false; askSave(); };
+  $('saveCancel').onclick = () => { closeAfterSave = false; $('saveDialog').classList.remove('open'); };
+  $('saveOk').onclick = () => { $('saveDialog').classList.remove('open'); save($('savePath').value); };
+  $('savePath').onkeydown = e => { if (e.key === 'Enter') $('saveOk').click(); };
+  $('closeButton').onclick = () => dirty && doc ? $('closeDialog').classList.add('open') : quit();
+  $('closeCancel').onclick = () => $('closeDialog').classList.remove('open');
+  $('closeAnyway').onclick = quit;
+  $('closeSave').onclick = () => {
+    $('closeDialog').classList.remove('open');
+    closeAfterSave = true;
+    askSave();
+  };
+  addEventListener('keydown', e => {
+    if ($('viewer').classList.contains('open')) {
+      if (e.key === 'ArrowLeft' && viewerIndex > 0) showImage(viewerList, viewerIndex - 1);
+      if (e.key === 'ArrowRight' && viewerIndex < viewerList.length - 1) showImage(viewerList, viewerIndex + 1);
+    }
+    if (e.key === 'Escape') {
+      closeModals();
+      if (picked) { picked = null; message(''); renderStage(); renderChosenBar(); }
+    }
+  });
+
+  if (doc) selectSpread(0);
+  else { renderHeader(); renderPool(); $('setup').classList.add('open'); }
+
+  // tell the script we are still here, and when the tab is closed
+  setInterval(() => api('/api/ping').catch(() => {}), 5000);
+  addEventListener('pagehide', () => navigator.sendBeacon('/api/closed?token=' + token));
+}
+
+start().catch(e => message(e.message, true));
+</script>
+</body>
+</html>
