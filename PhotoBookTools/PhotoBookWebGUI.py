@@ -70,8 +70,9 @@ SIZE_ATTRIBUTE = 'PhotoBookImageSize'    # size of the image at scale 1, in poin
 LAYOUT_ATTRIBUTE = 'PhotoBookLayout'    # layout of the page the item was created with
 ROLE_ATTRIBUTE = 'PhotoBookRole'    # image, caption or text
 SLOT_ATTRIBUTE = 'PhotoBookSlot'    # order of the item in its layout
-# fonts with emoji outlines (Scribus cannot use color emoji fonts)
-EMOJI_FONTS = ('Noto Emoji', 'Segoe UI Emoji', 'Symbola', 'OpenMoji', 'Twemoji', 'EmojiOne')
+# fonts with black and white emoji outlines, in order of preference: Scribus cannot draw
+# color emoji fonts (tested: Noto Color Emoji, Twemoji Mozilla print nothing)
+EMOJI_FONTS = ('Noto Emoji', 'OpenMoji Black', 'Segoe UI Emoji', 'Symbola')
 UNDO_STEPS = 30
 
 ##################################################
