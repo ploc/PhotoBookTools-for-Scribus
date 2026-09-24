@@ -35,18 +35,6 @@ if python_version[0:1] != "3":
         ICON_CRITICAL)	
     sys.exit(1)
 
-try:
-    from tkinter import * # python 3 syntax
-    from tkinter import messagebox
-    from tkinter import ttk # for ComboBox
-
-except ImportError:
-    print("This script requires Python Tkinter properly installed.")
-    messageBox('Script failed',
-               'This script requires Python Tkinter properly installed.',
-               ICON_CRITICAL)
-    sys.exit(1)
-
 ##################################################
 class ScPhotoBookLayoutMaker:
     """ PhotoBookLayoutMaker itself."""
@@ -215,202 +203,117 @@ class ScPhotoBookLayoutMaker:
         return None
 
 ##################################################
-class TkPhotoBookLayoutMaker(Frame):
-    """ GUI interface for PhotoBook Layout Maker with Tkinter"""
+# User interface (Scribus built-in dialogs, no Tkinter needed)
 
-    def __init__(self, master=None):
-        """ Setup the dialog """
-        Frame.__init__(self, master)
-        self.grid()
-        self.master.resizable(0, 0)
-        self.master.title('Scribus PhotoBook Layout Maker')
+TITLE = 'Scribus PhotoBook Layout Maker'
 
-        # define variables
-        self.statusVar = StringVar(self, value='Enter Values and Options and press OK.')
-        self.statusLabel = Label(self, fg="red", textvariable=self.statusVar)
-        self.colsVar = StringVar()
-        self.colsLabel = Label(self, text='Split/merge rectangle of selected item(s)\n\
-        or area within page margins in columns:')
-        self.colsEntry = Entry(self, textvariable=self.colsVar, width=9)
-        self.rowsVar = StringVar()
-        self.rowsLabel = Label(self, text=' and rows:')
-        self.rowsEntry = Entry(self, textvariable=self.rowsVar, width=9)
-        self.gapVar = DoubleVar()
-        self.gapLabel = Label(self, text='Gap in document units:')
-        self.gapEntry = Entry(self, textvariable=self.gapVar, width=9)
-        self.aspectwidthVar = StringVar()
-        self.aspectLabel = Label(self, text='New frame(s) aspect ratio (0=maximum area)')
-        self.aspectwidthLabel = Label(self, text='width:')
-        self.aspectwidthEntry = Entry(self, textvariable=self.aspectwidthVar, width=9)
-        self.aspectheightVar = StringVar()
-        self.aspectheightLabel = Label(self, text='  to height:')
-        self.aspectheightEntry = Entry(self, textvariable=self.aspectheightVar, width=9)
-        self.scaleVar = DoubleVar()
-        self.scaleLabel = Label(self, text='New frame(s) scaling in % of selected rectangle:')
-        self.scaleEntry = Entry(self, textvariable=self.scaleVar, width=9)
-        self.alignhLabel = Label(self, text='New frame(s) alignment - horizontal:')
-        self.alignhVar = ttk.Combobox(self, values = ["Left", "Center", "Right"], width=6)
-        self.alignvLabel = Label(self, text=' vertical:')
-        self.alignvVar = ttk.Combobox(self, values = ["Top", "Center", "Bottom"], width=6)
-        self.captionVar = IntVar()
-        self.captionLabel = Label(self, text='Text caption below image frame:')
-        self.captionCheck = Checkbutton(self, variable=self.captionVar)
-        self.captionhVar = DoubleVar()
-        self.captionhLabel = Label(self, text='Caption height\n in document units:')
-        self.captionhEntry = Entry(self, textvariable=self.captionhVar, width=9)
-        self.removeframeVar = IntVar()
-        self.removeframeLabel = Label(self, text='Remove source items:')
-        self.removeframeCheck = Checkbutton(self, variable=self.removeframeVar)
-        self.alternateborderVar = IntVar()
-        self.alternateborderLabel = Label(self, text='Alternative border style for new frame(s):')
-        self.alternateborderCheck = Checkbutton(self, variable=self.alternateborderVar)
-        self.saveparamsVar = IntVar()
-        self.saveparamsLabel = Label(self, text='Save above parameters for future use:')
-        self.saveparamsCheck = Checkbutton(self, variable=self.saveparamsVar)
+def isFloat(value):
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
 
-        self.okButton = Button(self, text="OK", width=6, command=self.okButton_pressed)
-        self.cancelButton = Button(self, text="Cancel", command=self.quit)
+def askValue(message, default, choices=None, validate=None):
+    """ Ask a value with scribus.valueDialog until it is valid.
+        Returns None if the user cancelled (empty answer)."""
+    value = default
+    while True:
+        prompt = message
+        if choices:
+            prompt += '\n(' + ', '.join(choices) + ')'
+        value = scribus.valueDialog(TITLE, prompt, value).strip()
+        if value == '':
+            return None
+        if choices:
+            for choice in choices:
+                if value.lower() == choice.lower():
+                    return choice
+        elif validate is None or validate(value):
+            return value
+        scribus.messageBox(TITLE, 'Invalid value: ' + value, ICON_WARNING)
 
-        # open 'PhotoBookLayoutMaker.cfg' - parameters file and read values
-        self.config = ConfigParser()
-        self.configFile = (os.path.join(os.path.dirname(__file__), 'PhotoBookLayoutMaker.cfg'))
-        self.config.read(self.configFile)
-        self.configItems = self.config.items('DEFAULT')
-        self.colsVar.set(self.configItems[0][1])
-        self.rowsVar.set(self.configItems[1][1])
-        self.gapVar.set(self.configItems[2][1])
-        self.aspectwidthVar.set(self.configItems[3][1])
-        self.aspectheightVar.set(self.configItems[4][1])
-        self.scaleVar.set(self.configItems[5][1])
-        self.alignhVar.set(self.configItems[6][1])
-        self.alignvVar.set(self.configItems[7][1])
-        self.captionVar.set(self.configItems[8][1])
-        if (self.configItems[8][1] == '1'):
-            self.captionCheck.select()
-        self.captionhVar.set(self.configItems[9][1])
-        self.removeframeVar.set(self.configItems[10][1])
-        if (self.configItems[10][1]) == '1':
-            self.removeframeCheck.select()
-        self.alternateborderVar.set(self.configItems[11][1])
-        if (self.configItems[11][1]) == '1':
-            self.alternateborderCheck.select()
-        #self.saveparamsCheck.select()
+def askYesNo(message, default):
+    """ Ask a yes/no question. Returns 1 for yes, 0 for no."""
+    message += '\n(saved value: ' + ('Yes' if default == '1' else 'No') + ')'
+    answer = scribus.messageBox(TITLE, message, ICON_NONE,
+        button1=scribus.BUTTON_YES, button2=scribus.BUTTON_NO)
+    return 1 if int(answer) == scribus.BUTTON_YES else 0
 
-        # make interface layout
-        self.columnconfigure(0, pad=6)
-        currRow = 0
-        self.statusLabel.grid(column=0, row=currRow, columnspan=4)
-        currRow += 1
-        self.colsLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.colsEntry.grid(column=1, row=currRow, sticky=S+W)
-        self.rowsLabel.grid(column=2, row=currRow, sticky=S+E)
-        self.rowsEntry.grid(column=3, row=currRow, sticky=S+W, padx=5)
-        currRow += 1
-        self.gapLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.gapEntry.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.aspectLabel.grid(column=0, row=currRow, sticky=S+E)
-        currRow += 1
-        self.aspectwidthLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.aspectwidthEntry.grid(column=1, row=currRow, sticky=S+W)
-        self.aspectheightLabel.grid(column=2, row=currRow, sticky=S+E)
-        self.aspectheightEntry.grid(column=3, row=currRow, sticky=S+W, padx=5)
-        currRow += 1
-        self.scaleLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.scaleEntry.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.alignhLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.alignhVar.grid(column=1, row=currRow, sticky=S+W)
-        self.alignvLabel.grid(column=2, row=currRow, sticky=S+E)
-        self.alignvVar.grid(column=3, row=currRow, sticky=S+W, padx=5)
-        currRow += 1
-        self.captionLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.captionCheck.grid(column=1, row=currRow, sticky=S+W)
-        self.captionhLabel.grid(column=2, row=currRow, sticky=S+E)
-        self.captionhEntry.grid(column=3, row=currRow, sticky=S+W, padx=5)
-        currRow += 1
-        self.removeframeLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.removeframeCheck.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.alternateborderLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.alternateborderCheck.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.saveparamsLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.saveparamsCheck.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.rowconfigure(currRow, pad=6)
-        self.okButton.grid(column=1, row=currRow, sticky=E)
-        self.cancelButton.grid(column=2, row=currRow, sticky=W) 
+def askParameters():
+    """ Ask all parameters, starting from the values saved in
+        'PhotoBookLayoutMaker.cfg'. Returns None if the user cancelled."""
+    configFile = os.path.join(os.path.dirname(__file__), 'PhotoBookLayoutMaker.cfg')
+    config = ConfigParser()
+    config.read(configFile)
+    cfg = config['DEFAULT']
 
-    def okButton_pressed(self):
-        """ User variables testing and preparing """
-        # create PhotoBook Layout
+    isPositiveInt = lambda v: v.isdigit() and int(v) > 0
 
-        # checks for input errors
-        if (self.colsVar.get().isdigit() == False or self.colsVar.get().isdigit() == False
-            or int(self.colsVar.get()) == 0 or int(self.rowsVar.get()) == 0):
-            self.statusVar.set('Columns and Rows must be integers > 0.')
-            return
+    cols = askValue('Split/merge rectangle of selected item(s)\n'
+        'or area within page margins in columns:', cfg.get('cols', '2'),
+        validate=isPositiveInt)
+    if cols is None:
+        return None
+    rows = askValue('... and rows:', cfg.get('rows', '1'), validate=isPositiveInt)
+    if rows is None:
+        return None
+    gap = askValue('Gap in document units:', cfg.get('gap', '5.0'), validate=isFloat)
+    if gap is None:
+        return None
+    aspect = askValue('New frame(s) aspect ratio as width:height\n(0:0 = maximum area):',
+        cfg.get('aspectwidth', '0') + ':' + cfg.get('aspectheight', '0'),
+        validate=lambda v: len(v.split(':')) == 2
+            and all(x.strip().isdigit() for x in v.split(':')))
+    if aspect is None:
+        return None
+    aspectwidth, aspectheight = [x.strip() for x in aspect.split(':')]
+    scale = askValue('New frame(s) scaling in % of selected rectangle:',
+        cfg.get('scale', '100.0'), validate=lambda v: isFloat(v) and float(v) > 0)
+    if scale is None:
+        return None
+    alignh = askValue('New frame(s) alignment - horizontal:', cfg.get('alignh', 'Center'),
+        ['Left', 'Center', 'Right'])
+    if alignh is None:
+        return None
+    alignv = askValue('New frame(s) alignment - vertical:', cfg.get('alignv', 'Center'),
+        ['Top', 'Center', 'Bottom'])
+    if alignv is None:
+        return None
+    savedCaptionh = cfg.get('captionh', '5.0')
+    captionh = askValue('Text caption height below image frame in document units\n'
+        '(0 = no caption):',
+        savedCaptionh if cfg.get('caption', '0') == '1' else '0', validate=isFloat)
+    if captionh is None:
+        return None
+    caption = 0 if float(captionh) == 0 else 1
+    removeframe = askYesNo('Remove source items?', cfg.get('removeframe', '1'))
+    alternateborder = askYesNo('Alternative border style for new frame(s)?',
+        cfg.get('alternateborder', '0'))
 
-        if (self.aspectwidthVar.get().isdigit() == False 
-            or self.aspectheightVar.get().isdigit() == False):
-            self.statusVar.set('Aspect ratio figures must be integers.')
-            return
-        if int(self.aspectheightVar.get()) == 0:
-            aspectratio = 0	# fill entire frame
-        else:
-            aspectratio = int(self.aspectwidthVar.get()) / int(self.aspectheightVar.get())
+    if askYesNo('Save these parameters for future use?', '0'):
+        cfg['cols'] = cols
+        cfg['rows'] = rows
+        cfg['gap'] = gap
+        cfg['aspectwidth'] = aspectwidth
+        cfg['aspectheight'] = aspectheight
+        cfg['scale'] = scale
+        cfg['alignh'] = alignh
+        cfg['alignv'] = alignv
+        cfg['caption'] = str(caption)
+        cfg['captionh'] = captionh if caption else savedCaptionh
+        cfg['removeframe'] = str(removeframe)
+        cfg['alternateborder'] = str(alternateborder)
+        with open(configFile, 'w') as configfile:
+            config.write(configfile)
 
-        if int(self.removeframeVar.get()) == 0:
-            removeframe = 0
-        else:
-            removeframe = 1
+    if int(aspectheight) == 0:
+        aspectratio = 0    # fill entire frame
+    else:
+        aspectratio = int(aspectwidth) / int(aspectheight)
 
-        if int(self.alternateborderVar.get()) == 0:
-            alternateborder = 0
-        else:
-            alternateborder = 1
-
-        if self.saveparamsVar.get() == 1:    # save parameters to 'PhotoBookLayoutMaker.cfg'
-            self.config = ConfigParser()
-            self.configFile = (os.path.join(os.path.dirname(__file__), 'PhotoBookLayoutMaker.cfg'))
-            self.config.read(self.configFile)
-            self.configItems = self.config.items('DEFAULT')
-            self.config.set('DEFAULT', self.configItems[0][0], self.colsVar.get())
-            self.config.set('DEFAULT', self.configItems[1][0], self.rowsVar.get())
-            self.config.set('DEFAULT', self.configItems[2][0], str(self.gapVar.get()))
-            self.config.set('DEFAULT', self.configItems[3][0], self.aspectwidthVar.get())
-            self.config.set('DEFAULT', self.configItems[4][0], self.aspectheightVar.get())
-            self.config.set('DEFAULT', self.configItems[5][0], str(self.scaleVar.get()))
-            self.config.set('DEFAULT', self.configItems[6][0], self.alignhVar.get())
-            self.config.set('DEFAULT', self.configItems[7][0], self.alignvVar.get())
-            self.config.set('DEFAULT', self.configItems[8][0], str(self.captionVar.get()))
-            self.config.set('DEFAULT', self.configItems[9][0], str(self.captionhVar.get()))
-            self.config.set('DEFAULT', self.configItems[10][0], str(removeframe))
-            self.config.set('DEFAULT', self.configItems[11][0], str(alternateborder))
-            with open(self.configFile, 'w') as configfile:
-                self.config.write(configfile)    # converts all items to lowercase !
-            #self.configItems = self.config.items('DEFAULT') 
-            #msg = messagebox.showinfo("INFO:", self.configItems) #################
-
-        if not int(self.captionVar.get()) == 1:
-            self.captionhVar.set("0.0")
-
-        spblm = ScPhotoBookLayoutMaker(int(self.colsVar.get()), int(self.rowsVar.get()),
-            float(self.gapVar.get()), float(aspectratio), float(self.scaleVar.get()),
-            self.alignhVar.get(), self.alignvVar.get(), float(self.captionhVar.get()),
-            removeframe, alternateborder)
-        self.master.withdraw()
-        err = spblm.createLayout()
-
-        if err != None:
-            self.master.deiconify()
-            self.statusVar.set(err)
-        else:
-            self.quit()
-
-    def quit(self):
-        self.master.destroy()
+    return ScPhotoBookLayoutMaker(int(cols), int(rows), float(gap), float(aspectratio),
+        float(scale), alignh, alignv, float(captionh), removeframe, alternateborder)
 
 ##################################################
 # Start program
@@ -426,9 +329,9 @@ def main():
         scribus.statusMessage('Running script...')
         scribus.progressReset()
         unit = scribus.getUnit()
-        root = Tk()
-        app = TkPhotoBookLayoutMaker(root)
-        root.mainloop()
+        spblm = askParameters()
+        if spblm is not None:
+            spblm.createLayout()
     finally:
         if scribus.haveDoc():
             scribus.redrawAll()

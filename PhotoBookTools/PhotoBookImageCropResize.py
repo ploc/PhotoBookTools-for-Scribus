@@ -33,17 +33,6 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from tkinter import * # python 3 syntax
-    #from tkinter import messagebox
-    from tkinter import ttk # for ComboBox
-except ImportError:
-    print("This script requires Python Tkinter properly installed.")
-    messageBox('Script failed',
-               'This script requires Python Tkinter properly installed.',
-               ICON_CRITICAL)
-    sys.exit(1)
-    
-try:
     # if PIL-package installed but not found, uncomment one of following lines:
     #sys.path.append('C:\\Users\\Python37\\Lib\\site-packages')  # Windows
     #sys.path.append('/usr/lib/python3/dist-packages')   # Linux
@@ -176,74 +165,45 @@ class ScPhotoBookImageCropResize:
         return
 
 ##################################################
-class TkPhotoBookImageCropResize(Frame):
-    """ GUI interface for PhotoBookImageCropResize.py with Tkinter"""
+# User interface (Scribus built-in dialogs, no Tkinter needed)
 
-    def __init__(self, master=None):
-        """ Setup the dialog """
-        Frame.__init__(self, master)
-        self.grid()
-        self.master.resizable(0, 0)
-        self.master.title('Crop and Resize')
+TITLE = 'Crop and Resize'
 
-        # define variables
-        self.statusVar = StringVar(self, value='Enter Options and press OK.')
-        self.statusLabel = Label(self, fg="red", textvariable=self.statusVar)
-        self.resolutionLabel = Label(self, text='Resolution: ')
-        self.resolutionVar = ttk.Combobox(self, values = ['72','75','96','144','150',
-           '200','288','300','600','1200'], width=9)
-        self.modeLabel = Label(self, text='Color mode: ')
-        self.modeVar = ttk.Combobox(self, values = ['RGB','CMYK','B&W','Grey scale'], width=9)
-        self.fileFormatLabel = Label(self, text='File format: ')
-        self.fileFormatVar = ttk.Combobox(self, values = ['.jpg','.png','.tif'], width=9)
-        self.resampleLabel = Label(self, text='Resampling: ')
-        self.resampleVar = ttk.Combobox(self, values = ['BICUBIC','BILINEAR','LANCZOS'], width=9)
-        self.okButton = Button(self, text="OK", width=6, command=self.okButton_pressed)
-        self.cancelButton = Button(self, text="Cancel", command=self.quit)
+def askChoice(message, default, choices=None, validate=None):
+    """ Ask a value with scribus.valueDialog until it is valid.
+        Returns None if the user cancelled (empty answer)."""
+    value = default
+    while True:
+        prompt = message
+        if choices:
+            prompt += '\n(' + ', '.join(choices) + ')'
+        value = scribus.valueDialog(TITLE, prompt, value).strip()
+        if value == '':
+            return None
+        if choices:
+            for choice in choices:
+                if value.lower() == choice.lower():
+                    return choice
+        elif validate is None or validate(value):
+            return value
+        scribus.messageBox(TITLE, 'Invalid value: ' + value, ICON_WARNING)
 
-        # set default values
-        self.resolutionVar.set('300')
-        self.modeVar.set('RGB')
-        self.fileFormatVar.set('.jpg')
-        self.resampleVar.set('BICUBIC')
-        
-        # make interface layout
-        self.columnconfigure(0, pad=6)
-        currRow = 0
-        self.statusLabel.grid(column=0, row=currRow, columnspan=2)
-        currRow += 1
-        self.resolutionLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.resolutionVar.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.modeLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.modeVar.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.fileFormatLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.fileFormatVar.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.resampleLabel.grid(column=0, row=currRow, sticky=S+E)
-        self.resampleVar.grid(column=1, row=currRow, sticky=S+W)
-        currRow += 1
-        self.rowconfigure(currRow, pad=6)
-        self.cancelButton.grid(column=0, row=currRow, sticky=E)
-        self.okButton.grid(column=1, row=currRow, sticky=W) 
-
-    def okButton_pressed(self):
-        """ Do PhotoBookImageCropResize """
-        
-        spbicr = ScPhotoBookImageCropResize(self.resolutionVar.get(),
-            self.modeVar.get(), self.fileFormatVar.get(), self.resampleVar.get())
-        self.master.withdraw()
-        err = spbicr.handleSelection()
-
-        if err != None:
-            self.master.deiconify()
-            self.statusVar.set(err)
-        else:
-            self.quit()
-
-    def quit(self):
-        self.master.destroy()
+def askOptions():
+    """ Ask all options. Returns None if the user cancelled."""
+    resolution = askChoice('Resolution (dpi):', '300',
+        validate=lambda v: v.isdigit() and int(v) > 0)
+    if resolution is None:
+        return None
+    mode = askChoice('Color mode:', 'RGB', ['RGB','CMYK','B&W','Grey scale'])
+    if mode is None:
+        return None
+    fileFormat = askChoice('File format:', '.jpg', ['.jpg','.png','.tif'])
+    if fileFormat is None:
+        return None
+    resample = askChoice('Resampling:', 'BICUBIC', ['BICUBIC','BILINEAR','LANCZOS'])
+    if resample is None:
+        return None
+    return resolution, mode, fileFormat, resample
 
 ##################################################
 # Start program
@@ -259,9 +219,9 @@ def main():
         scribus.statusMessage('Running script...')
         scribus.progressReset()
         unit = scribus.getUnit()
-        root = Tk()
-        app = TkPhotoBookImageCropResize(root)
-        root.mainloop()
+        options = askOptions()
+        if options is not None:
+            ScPhotoBookImageCropResize(*options).handleSelection()
     finally:
         if scribus.haveDoc():
             scribus.redrawAll()
