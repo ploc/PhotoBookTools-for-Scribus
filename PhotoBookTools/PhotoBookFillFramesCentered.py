@@ -19,13 +19,18 @@ This is an adapted version of an old Scribus script from Jeremy Brown.
 """
 ##################################################
 
+import sys, os
 from scribus import *
+
+# translations (PhotoBookLanguage.py must be in the same folder)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from PhotoBookLanguage import tr
 
 if haveDoc():
     nbrSelected = selectionCount()
 else:
-    scribus.messageBox("Error: No document open",
-        "Please, create (or open) a document before running this script ...",
+    scribus.messageBox(tr("Error: No document open"),
+        tr("Please, create (or open) a document before running this script ..."),
         scribus.ICON_WARNING,scribus.BUTTON_OK)
     sys.exit(1)
     

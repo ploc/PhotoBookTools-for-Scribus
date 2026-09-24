@@ -32,15 +32,19 @@ except ImportError:
         scribus.ICON_WARNING,scribus.BUTTON_OK)
     sys.exit(1)
 
+# translations (PhotoBookLanguage.py must be in the same folder)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from PhotoBookLanguage import tr
+
 try:
     # if PIL-package installed but not found, uncomment one of following lines:
     #sys.path.append('C:\\Users\\Python37\\Lib\\site-packages')  # Windows
     #sys.path.append('/usr/lib/python3/dist-packages')   # Linux
     from PIL import Image
 except ImportError:
-    scribus.messageBox("Script failed",
-        "This script needs the PIL (Pillow) package \n\
-        (compatible to your Python version) to be installed.",
+    scribus.messageBox(tr("Script failed"),
+        tr("This script needs the PIL (Pillow) package \n"
+        "(compatible to your Python version) to be installed."),
         scribus.ICON_CRITICAL,scribus.BUTTON_OK)
     sys.exit(1)
     
@@ -128,7 +132,7 @@ class ScPhotoBookImageCropResize:
             name,ext = os.path.splitext(imgFile)
             newImageFile = (name + '_cropped'+ self.fileFormat)
             if os.path.exists(newImageFile):
-                overwrite = scribus.messageBox('Warning:','Overwrite '+newImageFile+'?',
+                overwrite = scribus.messageBox(tr('Warning'), tr('Overwrite {}?').format(newImageFile),
                     ICON_WARNING, button2=scribus.BUTTON_NO, button1=scribus.BUTTON_YES)
                 if int(overwrite) > 16384:  # BUTTON_NO was clicked
                     return
@@ -138,7 +142,8 @@ class ScPhotoBookImageCropResize:
             scribus.loadImage(newImageFile,imageFrame)
             
         except:
-            scribus.messageBox('Warning:', imgFile + '\n will be skipped (processing error).',
+            scribus.messageBox(tr('Warning'),
+                tr('{}\n will be skipped (processing error).').format(imgFile),
                 ICON_WARNING, BUTTON_OK)
         return
         
@@ -148,7 +153,7 @@ class ScPhotoBookImageCropResize:
         nbrSelected = scribus.selectionCount()
         scribus.progressTotal(nbrSelected)
         if nbrSelected == 0:
-            scribus.messageBox('Warning', 'Nothing selected', ICON_WARNING)
+            scribus.messageBox(tr('Warning'), tr('Nothing selected'), ICON_WARNING)
         else:    # one or more items selected
             for i in range (0, selectionCount()):
                 scribus.progressSet(i)
@@ -156,8 +161,8 @@ class ScPhotoBookImageCropResize:
                 selectionList.append(obj)
                 objectType = getObjectType(obj)
                 if objectType == 'Group':
-                    messageBox('Warning', 'Grouped items will be skipped.\nPlease ungroup "'
-                        +obj+'" and try again.', ICON_WARNING)
+                    messageBox(tr('Warning'), tr('Grouped items will be skipped.\n'
+                        'Please ungroup "{}" and try again.').format(obj), ICON_WARNING)
                 elif (objectType == 'ImageFrame') and (getImageFile(obj) != ""):
                     self.handleImage(obj)
                 else: # not an image frame -> skip
@@ -167,26 +172,28 @@ class ScPhotoBookImageCropResize:
 ##################################################
 # User interface (Scribus built-in dialogs, no Tkinter needed)
 
-TITLE = 'Crop and Resize'
+TITLE = tr('Crop and Resize')
 
 def askChoice(message, default, choices=None, validate=None):
     """ Ask a value with scribus.valueDialog until it is valid.
         Returns None if the user cancelled (empty answer)."""
     value = default
     while True:
-        prompt = message
+        prompt = tr(message)
         if choices:
-            prompt += '\n(' + ', '.join(choices) + ')'
+            prompt += '\n(' + ', '.join(tr(c) for c in choices) + ')'
+            value = tr(value)
         value = scribus.valueDialog(TITLE, prompt, value).strip()
         if value == '':
             return None
         if choices:
+            # accept the translated or the English name
             for choice in choices:
-                if value.lower() == choice.lower():
+                if value.lower() in (choice.lower(), tr(choice).lower()):
                     return choice
         elif validate is None or validate(value):
             return value
-        scribus.messageBox(TITLE, 'Invalid value: ' + value, ICON_WARNING)
+        scribus.messageBox(TITLE, tr('Invalid value: {}').format(value), ICON_WARNING)
 
 def askOptions():
     """ Ask all options. Returns None if the user cancelled."""
@@ -210,13 +217,13 @@ def askOptions():
 
 def main():
     if scribus.haveDoc() == 0:
-        scribus.messageBox("Script failed",
-            "Please open a Scribus document before running this script.",
+        scribus.messageBox(tr("Script failed"),
+            tr("Please open a Scribus document before running this script."),
             scribus.ICON_WARNING,scribus.BUTTON_OK)
         return
     
     try:
-        scribus.statusMessage('Running script...')
+        scribus.statusMessage(tr('Running script...'))
         scribus.progressReset()
         unit = scribus.getUnit()
         options = askOptions()
@@ -226,7 +233,7 @@ def main():
         if scribus.haveDoc():
             scribus.redrawAll()
         scribus.setUnit(unit)
-        scribus.statusMessage('Done.')
+        scribus.statusMessage(tr('Done.'))
         scribus.progressReset()
 
 if __name__ == '__main__':

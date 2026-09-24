@@ -27,11 +27,15 @@ except ImportError:
     print("It can only be run from within Scribus.")
     sys.exit(1)
 
+# translations (PhotoBookLanguage.py must be in the same folder)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from PhotoBookLanguage import tr
+
 python_version = platform.python_version()
 if python_version[0:1] != "3":
     print("This script runs only with Python 3.")
-    messageBox("Script failed",
-        "This script runs only with Python 3.",
+    messageBox(tr("Script failed"),
+        tr("This script runs only with Python 3."),
         ICON_CRITICAL)	
     sys.exit(1)
 
@@ -103,8 +107,8 @@ class ScPhotoBookLayoutMaker:
                 obj = getSelectedObject(i)
                 selectionList.append(obj)
                 if getObjectType(obj) == 'Group':
-                    messageBox('Warning', 'Grouped items are not allowed as source.\nPlease ungroup "'
-                        +obj+'" and try again.', ICON_CRITICAL)
+                    messageBox(tr('Warning'), tr('Grouped items are not allowed as source.\n'
+                        'Please ungroup "{}" and try again.').format(obj), ICON_CRITICAL)
                     sys.exit(1)
                 frameX, frameY = getPosition(obj)
                 frameWidth, frameHeight = getSize(obj)
@@ -205,7 +209,7 @@ class ScPhotoBookLayoutMaker:
 ##################################################
 # User interface (Scribus built-in dialogs, no Tkinter needed)
 
-TITLE = 'Scribus PhotoBook Layout Maker'
+TITLE = tr('Scribus PhotoBook Layout Maker')
 
 def isFloat(value):
     try:
@@ -219,23 +223,26 @@ def askValue(message, default, choices=None, validate=None):
         Returns None if the user cancelled (empty answer)."""
     value = default
     while True:
-        prompt = message
+        prompt = tr(message)
         if choices:
-            prompt += '\n(' + ', '.join(choices) + ')'
+            prompt += '\n(' + ', '.join(tr(c) for c in choices) + ')'
+            value = tr(value)
         value = scribus.valueDialog(TITLE, prompt, value).strip()
         if value == '':
             return None
         if choices:
+            # accept the translated or the English name
             for choice in choices:
-                if value.lower() == choice.lower():
+                if value.lower() in (choice.lower(), tr(choice).lower()):
                     return choice
         elif validate is None or validate(value):
             return value
-        scribus.messageBox(TITLE, 'Invalid value: ' + value, ICON_WARNING)
+        scribus.messageBox(TITLE, tr('Invalid value: {}').format(value), ICON_WARNING)
 
 def askYesNo(message, default):
     """ Ask a yes/no question. Returns 1 for yes, 0 for no."""
-    message += '\n(saved value: ' + ('Yes' if default == '1' else 'No') + ')'
+    message = (tr(message) + '\n'
+        + tr('(saved value: {})').format(tr('Yes') if default == '1' else tr('No')))
     answer = scribus.messageBox(TITLE, message, ICON_NONE,
         button1=scribus.BUTTON_YES, button2=scribus.BUTTON_NO)
     return 1 if int(answer) == scribus.BUTTON_YES else 0
@@ -320,13 +327,13 @@ def askParameters():
 
 def main():
     if scribus.haveDoc() == 0:
-        scribus.messageBox("Error: No document open",
-            "Please, create (or open) a document before running this script ...",
+        scribus.messageBox(tr("Error: No document open"),
+            tr("Please, create (or open) a document before running this script ..."),
             scribus.ICON_WARNING,scribus.BUTTON_OK)
         return
     
     try:
-        scribus.statusMessage('Running script...')
+        scribus.statusMessage(tr('Running script...'))
         scribus.progressReset()
         unit = scribus.getUnit()
         spblm = askParameters()
@@ -336,7 +343,7 @@ def main():
         if scribus.haveDoc():
             scribus.redrawAll()
         scribus.setUnit(unit)
-        scribus.statusMessage('Done.')
+        scribus.statusMessage(tr('Done.'))
         scribus.progressReset()
 
 if __name__ == '__main__':
