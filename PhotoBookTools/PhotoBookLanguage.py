@@ -208,6 +208,12 @@ FRENCH = {
     'Crop': 'recadrage',
     # pages
     'Pages': 'Pages',
+    'This document has single pages, not double pages.':
+        'Ce document a des pages simples, pas des doubles pages.',
+    'To get double pages, close this page, then in Scribus choose File > Document Setup, tick Double Sided with the first page on the right, and run the script again. Or close the document in Scribus and create the book from this page.':
+        'Pour avoir des doubles pages, fermez cette page, puis dans Scribus choisissez Fichier > Réglages '
+        'du document, cochez Pages en vis-à-vis avec la première page à droite, et relancez le script. '
+        'Ou fermez le document dans Scribus et créez le livre depuis cette page.',
     '+ 1 page': '+ 1 page',
     '+ 2 pages': '+ 2 pages',
     'New photo book': 'Nouveau livre photo',

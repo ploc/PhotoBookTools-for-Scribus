@@ -353,6 +353,10 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
   <!-- pages of the book -->
   <section>
     <h2 data-t>Pages</h2>
+    <div id="singleNotice" class="muted" style="display:none; margin-bottom:8px">
+      <span data-t>This document has single pages, not double pages.</span>
+      <span data-t>To get double pages, close this page, then in Scribus choose File > Document Setup, tick Double Sided with the first page on the right, and run the script again. Or close the document in Scribus and create the book from this page.</span>
+    </div>
     <div id="spreads" class="spreads"></div>
     <div class="addpages">
       <button id="add1" data-t>+ 1 page</button>
@@ -729,6 +733,7 @@ function renderSpreads() {
   });
   const last = doc.pages[doc.pages.length - 1];
   $('add2').disabled = !last || last.side === 0;    // a single left page must be completed first
+  $('singleNotice').style.display = doc.facing === false ? '' : 'none';
   const cur = box.querySelectorAll('.spread')[current];
   if (cur) cur.scrollIntoView({block: 'nearest'});
 }

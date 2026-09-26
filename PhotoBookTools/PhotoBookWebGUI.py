@@ -350,7 +350,14 @@ class ScPhotoBookWebGUI:
     def document(self):
         if not haveDoc():
             return None
-        return {'name': getDocName(), 'unit': UNIT_NAMES[getUnit()], 'pages': self.pages(),
+        pages = self.pages()
+        # Scribus says 'left page' for all the pages of a single sided document:
+        # they are shown as single pages (side 1), not as incomplete double pages
+        facing = any(p['side'] != 0 for p in pages)
+        if not facing:
+            for p in pages:
+                p['side'] = 1
+        return {'name': getDocName(), 'unit': UNIT_NAMES[getUnit()], 'pages': pages, 'facing': facing,
             'undo': tr(self.undoSteps[-1]['label']) if self.undoSteps else None}
 
     def role(self, name):
