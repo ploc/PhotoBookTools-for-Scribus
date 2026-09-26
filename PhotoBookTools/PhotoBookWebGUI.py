@@ -76,6 +76,8 @@ SLOT_ATTRIBUTE = 'PhotoBookSlot'    # order of the item in its layout
 FORMAT_ATTRIBUTE = 'PhotoBookTextFormat'    # font, size, color, style of a text written by the page
 SOURCE_ATTRIBUTE = 'PhotoBookSource'    # image file before rotation
 ROTATION_ATTRIBUTE = 'PhotoBookRotation'    # rotation of the image, in degrees clockwise
+OPTIONS_ATTRIBUTE = 'PhotoBookOptions'    # options of the layout (captions, text block, spacing...)
+KEPT_ATTRIBUTE = 'PhotoBookKept'    # texts of the page kept aside, when their frames were removed
 UNDO_STEPS = 30
 
 ##################################################
@@ -531,6 +533,11 @@ class ScPhotoBookWebGUI:
                 item['layout'] = attributes.get(LAYOUT_ATTRIBUTE)
                 item['role'] = attributes.get(ROLE_ATTRIBUTE) or item['kind']
                 item['slot'] = int(attributes.get(SLOT_ATTRIBUTE) or 0)
+                for key, attribute in (('options', OPTIONS_ATTRIBUTE), ('kept', KEPT_ATTRIBUTE)):
+                    try:
+                        item[key] = json.loads(attributes[attribute]) if attributes.get(attribute) else None
+                    except ValueError:
+                        item[key] = None
                 if objectType == 'ImageFrame':
                     item['image'] = getImageFile(name)
                     if item['image']:
@@ -780,10 +787,13 @@ class ScPhotoBookWebGUI:
         finally:
             setUnit(unit)
 
-    def apply(self, pages, frames, border, layout=None):
+    def apply(self, pages, frames, border, layout=None, options=None, kept=None):
         """ Replace the layout of the pages by the frames computed by the web page.
             frames: list of {page, kind: image, caption or text, x, y, w, h,
-            image, crop: {zoom, cx, cy}, text}; layout: name of the layout, kept with the items.
+            image, crop: {zoom, cx, cy}, flip: [h, v], source, rotation, text}.
+            Kept with the items, to edit the page later: layout (name of the layout),
+            options (captions, text block, spacing...) and kept ({page: texts kept aside,
+            whose frames are not in the layout}).
             Items not created by this script must be cleared first."""
         for page in pages:
             if any(not name.startswith(ITEM_PREFIX) for name in self.pageItems(page)):
@@ -818,6 +828,15 @@ class ScPhotoBookWebGUI:
                             crop.get('zoom', 1.0), crop.get('cx', 0.5), crop.get('cy', 0.5))
                     except Exception as e:
                         errors.append(os.path.basename(frame['image']) + ': ' + str(e))
+                    # what was done to the image, when the page is laid out again
+                    flip = frame.get('flip') or [False, False]
+                    if flip[0]:
+                        setProperty(newFrame, 'imageFlippedH', True)
+                    if flip[1]:
+                        setProperty(newFrame, 'imageFlippedV', True)
+                    if frame.get('source') and frame.get('rotation'):
+                        self.setAttribute(newFrame, SOURCE_ATTRIBUTE, frame['source'])
+                        self.setAttribute(newFrame, ROTATION_ATTRIBUTE, str(frame['rotation']))
             else:
                 caption = frame['kind'] == 'caption'
                 newFrame = createText(x, y, w, h, name)
@@ -833,6 +852,11 @@ class ScPhotoBookWebGUI:
             self.setAttribute(newFrame, SLOT_ATTRIBUTE, str(len(created)))
             if layout:
                 self.setAttribute(newFrame, LAYOUT_ATTRIBUTE, layout)
+            if options:
+                self.setAttribute(newFrame, OPTIONS_ATTRIBUTE, json.dumps(options))
+            texts = (kept or {}).get(str(frame['page']))
+            if texts:
+                self.setAttribute(newFrame, KEPT_ATTRIBUTE, json.dumps(texts))
         # the stickers stay above the new frames
         for page in pages:
             for name in self.pageItems(page):
@@ -1244,7 +1268,7 @@ class WebApp:
             return maker.action('Erase', maker.clearPages, body['pages'])
         if path == '/api/apply':
             return maker.action('Layout', maker.apply, body['pages'], body['frames'], body.get('border'),
-                body.get('layout'))
+                body.get('layout'), body.get('options'), body.get('kept'))
         if path == '/api/sticker':
             return maker.action('Sticker', maker.addSticker, body['page'], body['emoji'], body['png'],
                 body['x'], body['y'], body['size'])

@@ -215,6 +215,11 @@ svg .styled { stroke: #e08a1e; }
 svg .lowres rect { fill: #b3412f; }
 svg .lowres text { fill: #fff; font-weight: 700; }
 
+.keptbox { display: none; flex: none; flex-direction: column; gap: 4px; padding: 6px 8px; margin-bottom: 4px;
+  border: 1px dashed var(--line); border-radius: 6px; max-height: 160px; overflow: auto; }
+.keptbox.on { display: flex; }
+.keptbox div { white-space: pre-wrap; user-select: text; }
+
 /* svg pages */
 svg .pg { fill: var(--page); }
 svg .pgline { fill: none; stroke: #b5b2ab; }
@@ -362,6 +367,11 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
         <button id="stickerButton" title="Add a color emoji on the page" data-t-title>😀 <span data-t>Sticker</span></button>
         <button id="clearPages" class="danger" data-t>Erase page content</button>
       </div>
+      <div id="keptInfo" class="row" style="display:none; margin:2px 0">
+        <span id="keptText" class="muted"></span>
+        <button id="keptShow" class="icon" data-t>Show</button>
+      </div>
+      <div id="keptBox" class="keptbox"></div>
       <div id="clearConfirm" class="confirm">
         <span id="clearQuestion"></span>
         <button id="clearYes" class="danger" data-t>Erase</button>
@@ -839,6 +849,7 @@ function selectSpread(i) {
   target = new Set((empty.length ? empty : sp).map(p => p.page));
   hideClearConfirm();
   message('');
+  loadPageOptions();
   renderAll();
 }
 
@@ -852,6 +863,7 @@ function renderStage() {
     : '';
   $('clearPages').disabled = !tp.some(p => p.items.length);
   if (picked && !itemByName(picked)) picked = null;
+  renderKept(tp);
   const svg = pagesSvg(sp, {large: true});
   $('view').outerHTML = svg.replace('<svg ', '<svg id="view" ');
   bindView();
@@ -1159,6 +1171,7 @@ function toggleTarget(page) {
   else if (target.has(page)) target.delete(page);
   else target.add(page);
   hideClearConfirm();
+  loadPageOptions();
   renderStage(); renderLayouts();
 }
 
@@ -1313,10 +1326,127 @@ function layoutsFor(tp, n, images, o) {
 }
 
 function proposals() {
-  const n = chosen.length, sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
-  if (!n || !tp.length || tp.some(foreign)) return [];
-  const images = chosen.map(path => pool.find(im => im.path === path)).filter(Boolean);
-  return layoutsFor(tp, n, images, options()).slice(0, 30);
+  const sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  if (!tp.length || tp.some(foreign)) return [];
+  let images = chosen.map(path => pool.find(im => im.path === path)).filter(Boolean);
+  if (!images.length) {    // no image selected: other layouts for the photos of the page
+    const content = pageContent(tp);
+    images = content ? content.photos.map(photoRecord) : [];
+  }
+  return images.length ? layoutsFor(tp, images.length, images, options()).slice(0, 30) : [];
+}
+
+// ---------- editing a page made by this page: its content is kept when the layout changes
+
+const photoKey = it => it.source || it.image;    // a photo, even rotated
+const photoRecord = it => ({path: it.image, size: it.pixels || null, item: it});
+const realText = text => !!(text && text.trim() && !PLACEHOLDERS().includes(text.trim()));
+
+// the photos of the pages (with their crop, rotation, mirror), the caption of each photo,
+// the text blocks, the texts kept aside and the options of the layout; null if the pages
+// have items not made by this page
+function pageContent(tp) {
+  const items = [];
+  tp.forEach((p, pi) => p.items.forEach(it => { if (it.role !== 'sticker') items.push([pi, it]); }));
+  if (!items.length || items.some(([, it]) => !it.app)) return null;
+  items.sort((a, b) => a[0] - b[0] || a[1].slot - b[1].slot);
+  const content = {photos: [], captions: {}, texts: [], kept: {captions: {}, texts: []}, options: null,
+    layout: appliedLayout(tp), styled: false};
+  const keptSeen = new Set();
+  let last = null;    // a caption is made just after its photo
+  for (const [pi, it] of items) {
+    if (it.kind === 'image') {
+      last = it.image ? it : null;
+      if (it.image) content.photos.push(it);
+    } else if (it.role === 'caption') {
+      if (last && realText(it.text)) content.captions[photoKey(last)] = it.text;
+    } else if (it.kind === 'text' && realText(it.text)) content.texts.push(it.text);
+    content.styled = content.styled || !!it.styled;
+    content.options = content.options || it.options;
+    if (it.kept && !keptSeen.has(pi)) {    // the same on all the items of a page
+      keptSeen.add(pi);
+      Object.assign(content.kept.captions, it.kept.captions || {});
+      content.kept.texts.push(...(it.kept.texts || []));
+    }
+  }
+  return content;
+}
+
+// put the content of the pages in the frames of a layout: the photos keep their crop,
+// rotation and mirror, each caption follows its photo, the text blocks get the texts;
+// what has no place is kept aside with the page. Returns the texts kept aside, by page.
+function fillFrames(tp, frames, content) {
+  if (!content) return null;
+  const byPath = {};
+  for (const it of content.photos) byPath[it.image] = it;
+  const captions = Object.assign({}, content.kept.captions, content.captions);
+  const texts = content.texts.concat(content.kept.texts);
+  let last = null;
+  for (const f of frames) {
+    if (f.kind === 'image') {
+      last = byPath[f.image] || null;
+      if (last) {
+        if (last.crop) f.crop = cropState(last);
+        f.flip = last.flip;
+        if (last.rotation) { f.source = last.source; f.rotation = last.rotation; }
+      }
+    } else if (f.kind === 'caption') {
+      const k = last && photoKey(last);
+      if (k && captions[k] !== undefined) { f.text = captions[k]; delete captions[k]; }
+    } else if (texts.length) f.text = texts.shift();
+  }
+  const kept = {captions, texts};
+  return Object.keys(captions).length || texts.length ? {[tp[0].page]: kept} : null;
+}
+
+// the options of the layout, kept with the page to edit it later
+const OPTION_IDS = ['spacing', 'captionh', 'textblock', 'textsize', 'scale', 'aspectwidth', 'aspectheight',
+  'alignh', 'alignv', 'border'];
+function storedOptions() {
+  const o = {captions: $('captions').checked};
+  for (const id of OPTION_IDS) o[id] = $(id).value;
+  return o;
+}
+// show the options of the page being edited
+function loadPageOptions() {
+  const tp = currentSpread().filter(p => target.has(p.page)), content = pageContent(tp);
+  if (!content || !content.options) return;
+  const o = content.options;
+  $('captions').checked = !!o.captions;
+  for (const id of OPTION_IDS) if (o[id] !== undefined) $(id).value = o[id];
+  updateGapInfo();
+}
+
+// the texts kept aside with the page: they come back when captions or a text block are added
+function renderKept(tp) {
+  const content = tp.length ? pageContent(tp) : null, kept = content && content.kept;
+  const captions = kept ? Object.entries(kept.captions) : [], texts = kept ? kept.texts : [];
+  $('keptInfo').style.display = captions.length || texts.length ? '' : 'none';
+  if (!captions.length && !texts.length) { $('keptBox').classList.remove('on'); return; }
+  const parts = [];
+  if (captions.length) parts.push(fmt(captions.length > 1 ? '{} captions' : '{} caption', captions.length));
+  if (texts.length) parts.push(fmt(texts.length > 1 ? '{} text blocks' : '{} text block', texts.length));
+  $('keptText').textContent = '📝 ' + fmt('Texts kept aside: {}. They come back when you add captions or a text block.',
+    parts.join(', '));
+  const box = $('keptBox');
+  box.innerHTML = '';
+  for (const [path, text] of captions) {
+    const d = document.createElement('div');
+    d.textContent = fileName(path) + ' : ' + text;
+    box.appendChild(d);
+  }
+  for (const text of texts) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    box.appendChild(d);
+  }
+}
+
+// choose a layout: with the selected images, or with the photos of the page
+function chooseLayout(tp, p) {
+  const content = pageContent(tp);
+  const kept = fillFrames(tp, p.frames, content);
+  apply(tp, p.frames, p.sig, kept);
 }
 
 // name of the layout applied by this page on the target pages, if they have only its items
@@ -1336,30 +1466,25 @@ async function reapply(confirmed) {
     $('reapplyConfirm').style.display = 'flex';
     return;
   }
-  const items = tp.flatMap(p => p.items).sort((a, b) => a.slot - b.slot);
-  const of = role => items.filter(i => i.role === role);    // stickers are not in the layout
-  const images = of('image'), captions = of('caption'), texts = of('text');
-  const found = layoutsFor(tp, images.length, images.map(i => ({path: i.image, size: null})), options())
+  const content = pageContent(tp);
+  const found = layoutsFor(tp, content.photos.length, content.photos.map(photoRecord), options())
     .find(p => p.sig === sig);
   if (!found) return;
-  let ii = 0, ci = 0, ti = 0;
-  for (const f of found.frames) {
-    if (f.kind === 'image') {
-      const it = images[ii++];
-      f.image = it && it.image || null;
-      if (it && it.crop) f.crop = cropState(it);
-    } else if (f.kind === 'caption') { const it = captions[ci++]; if (it) f.text = it.text; }
-    else { const it = texts[ti++]; if (it) f.text = it.text; }
-  }
-  await apply(tp, found.frames, sig);
+  // the same photos in the same frames as before
+  let i = 0;
+  for (const f of found.frames) if (f.kind === 'image') f.image = (content.photos[i++] || {}).image || null;
+  await apply(tp, found.frames, sig, fillFrames(tp, found.frames, content));
 }
 
 function renderLayouts() {
-  const n = chosen.length, sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  const sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  const content = !chosen.length && tp.length ? pageContent(tp) : null;
+  const n = chosen.length || (content ? content.photos.length : 0);
   const box = $('layouts');
   box.innerHTML = '';
   box.className = 'layouts' + (tp.length === 1 ? ' single' : '');
-  $('layoutsTitle').textContent = n ? fmt('Layouts for {} images', n) : t('Layouts');
+  $('layoutsTitle').textContent = !n ? t('Layouts') : content ? fmt('Layouts for the {} photos of this page', n)
+    : fmt('Layouts for {} images', n);
   let info = '';
   if (!tp.length) info = t('Click a page below to choose where the layout goes.');
   else if (tp.some(foreign)) info = t('This page already has content: erase it to make a new layout.');
@@ -1373,13 +1498,13 @@ function renderLayouts() {
     const b = document.createElement('button');
     b.className = 'layout' + (p.sig === current ? ' current' : '');
     b.innerHTML = pagesSvg(tp, {frames: p.frames, id: 'l' + i});
-    b.onclick = () => apply(tp, p.frames, p.sig);
+    b.onclick = () => chooseLayout(tp, p);
     box.appendChild(b);
   });
 }
 
 let applying = 0;    // number of the last layout chosen
-async function apply(tp, frames, layout) {
+async function apply(tp, frames, layout, kept) {
   const id = ++applying;
   // shown at once as it will be (Scribus takes a moment to load the photos):
   // the frames of the layout, and the stickers that stay above them
@@ -1388,14 +1513,15 @@ async function apply(tp, frames, layout) {
     if (!pages.has(p.page)) continue;
     p.items = frames.filter(f => f.page === p.page).map(f => ({
       kind: f.kind === 'caption' ? 'text' : f.kind, role: f.kind, x: f.x, y: f.y, w: f.w, h: f.h,
-      image: f.image, app: true, layout})).concat(p.items.filter(i => i.role === 'sticker'));
+      image: f.image, text: f.text, app: true, layout})).concat(p.items.filter(i => i.role === 'sticker'));
   }
   picked = null;
   renderStage(); renderSpreads();
   $('layouts').querySelectorAll('.layout').forEach(b => b.classList.remove('current'));
   message(t('Placing the images in Scribus…'));
   try {
-    const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value, layout});
+    const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value, layout,
+      options: storedOptions(), kept});
     if (id !== applying) return;    // another layout was chosen meanwhile: its answer will follow
     doc = r.document; markChanged();
     message(r.errors.length ? t('Errors:') + ' ' + r.errors.join('; ') : t('Layout applied.'), r.errors.length > 0);
@@ -2027,6 +2153,7 @@ async function start() {
     $(id).addEventListener('change', () => { flushCrop(); if (doc) reapply(); });    // the current layout follows
   }
   $('reapplyYes').onclick = () => reapply(true);
+  $('keptShow').onclick = () => $('keptBox').classList.toggle('on');
   $('reapplyNo').onclick = () => { $('reapplyConfirm').style.display = 'none'; };
   $('stickerButton').onclick = () => $('stickerBar').classList.toggle('on');
   EMOJIS.forEach(emoji => {
