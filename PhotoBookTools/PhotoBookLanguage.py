@@ -177,12 +177,27 @@ FRENCH = {
     'Done': 'Terminé',
     'Write the caption…': 'Écrivez la légende…',
     'Write your text…': 'Écrivez votre texte…',
-    'Emojis need an emoji font such as Noto Emoji installed, otherwise Scribus cannot print them.':
-        'Les émojis nécessitent une police d\'émojis installée, comme Noto Emoji, sinon Scribus '
-        'ne peut pas les imprimer.',
+    'Emojis are not printed in texts: use the Sticker button for color emojis.':
+        'Les émojis ne sont pas imprimés dans les textes : utilisez le bouton Autocollant '
+        'pour des émojis en couleur.',
     'The text is too long for the frame: shorten it, or enlarge the frame in Scribus.':
         'Le texte est trop long pour le cadre : raccourcissez-le, ou agrandissez le cadre dans Scribus.',
+    'Sticker': 'Autocollant',
+    'Add a color emoji on the page': 'Ajouter un émoji en couleur sur la page',
+    'Add a sticker': 'Ajouter un autocollant',
+    'Click an emoji to put it on the page, then drag it where you want.':
+        'Cliquez sur un émoji pour le mettre sur la page, puis faites-le glisser où vous voulez.',
+    'Size': 'Taille',
+    'Other emoji:': 'Autre émoji :',
+    'Add': 'Ajouter',
+    'Type or paste any emoji (emoji picker: Ctrl+Cmd+Space on Mac, Windows+. on Windows).':
+        'Tapez ou collez n\'importe quel émoji (sélecteur d\'émojis : Ctrl+Cmd+Espace sur Mac, '
+        'Windows+. sous Windows).',
+    'Type or paste an emoji first.': 'Tapez ou collez d\'abord un émoji.',
+    'Delete the sticker': 'Supprimer l\'autocollant',
+    'Drag the sticker to move it.': 'Faites glisser l\'autocollant pour le déplacer.',
     # undo steps (PhotoBookWebGUI.py)
+    'Move': 'déplacement',
     'Text': 'texte',
     'Add pages': 'ajout de pages',
     'Insert pages': 'insertion de pages',

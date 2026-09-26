@@ -24,7 +24,7 @@ Scribus does not respond to clicks while the page is open.
 ##################################################
 # imports
 import sys, platform, os, json, time, secrets, struct, mimetypes, webbrowser
-import shutil, subprocess, tempfile, hashlib
+import shutil, subprocess, tempfile, hashlib, base64
 from configparser import ConfigParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -70,9 +70,6 @@ SIZE_ATTRIBUTE = 'PhotoBookImageSize'    # size of the image at scale 1, in poin
 LAYOUT_ATTRIBUTE = 'PhotoBookLayout'    # layout of the page the item was created with
 ROLE_ATTRIBUTE = 'PhotoBookRole'    # image, caption or text
 SLOT_ATTRIBUTE = 'PhotoBookSlot'    # order of the item in its layout
-# fonts with black and white emoji outlines, in order of preference: Scribus cannot draw
-# color emoji fonts (tested: Noto Color Emoji, Twemoji Mozilla print nothing)
-EMOJI_FONTS = ('Noto Emoji', 'OpenMoji Black', 'Segoe UI Emoji', 'Symbola')
 UNDO_STEPS = 30
 
 ##################################################
@@ -241,27 +238,6 @@ def cachedPreview(path, size):
     return out
 
 ##################################################
-# emojis: Scribus needs a font that has them
-
-def isEmoji(char):
-    code = ord(char)
-    return (0x1f000 <= code <= 0x1faff or 0x2600 <= code <= 0x27bf or 0x2b00 <= code <= 0x2bff
-        or 0x2190 <= code <= 0x21ff or code in (0x200d, 0xfe0f, 0x20e3, 0x2764, 0x00a9, 0x00ae))
-
-def emojiRuns(text):
-    """ (start, length) of the emoji runs, in UTF-16 units as Scribus counts them."""
-    runs, start, position = [], None, 0
-    for char in text + ' ':
-        if isEmoji(char) and char != ' ':
-            if start is None:
-                start = position
-        elif start is not None:
-            runs.append((start, position - start))
-            start = None
-        position += 2 if ord(char) > 0xffff else 1
-    return runs
-
-##################################################
 class ScPhotoBookWebGUI:
     """ PhotoBookWebGUI itself: the actions of the web page on the document.
         Items removed by an action go to a hidden layer so that it can be undone;
@@ -275,7 +251,6 @@ class ScPhotoBookWebGUI:
         self.undoSteps = []            # [{'label', 'undo': [functions], 'trash': [items]}]
         self.step = None
         self.sizes = {}                # image file -> size in points, estimated from the file
-        self.emojiFont = None          # found when a document is open
 
     # --- undo
 
@@ -375,12 +350,14 @@ class ScPhotoBookWebGUI:
     def document(self):
         if not haveDoc():
             return None
-        if self.emojiFont is None:
-            fonts = getFontNames()
-            self.emojiFont = next((f for f in fonts if f.startswith(EMOJI_FONTS)), '')
         return {'name': getDocName(), 'unit': UNIT_NAMES[getUnit()], 'pages': self.pages(),
-            'emojiFont': self.emojiFont,
             'undo': tr(self.undoSteps[-1]['label']) if self.undoSteps else None}
+
+    def role(self, name):
+        for attribute in getObjectAttributes(name):
+            if attribute.get('Name') == ROLE_ATTRIBUTE:
+                return attribute.get('Value')
+        return None
 
     def pageItems(self, page):
         """ Items of a page, without the removed ones."""
@@ -568,16 +545,11 @@ class ScPhotoBookWebGUI:
         setObjectAttributes(attributes, frame)
 
     def writeText(self, frame, text):
-        """ Replace the text, keeping the paragraph style, with the emoji font on emojis."""
+        """ Replace the text, keeping the paragraph style."""
         style = getParagraphStyle(frame)
         setText(text, frame)
         if style:
             setParagraphStyle(style, frame)
-        if self.emojiFont:
-            for start, length in emojiRuns(text):
-                selectText(start, length, frame)
-                setFont(self.emojiFont, frame)
-            deselectAll()
 
     def setCrop(self, frame, zoom, cx, cy):
         """ Scale the image to fill the frame, zoomed, with the point (cx, cy) of the
@@ -609,7 +581,8 @@ class ScPhotoBookWebGUI:
                 raise ValueError(tr('Page {} is not empty: clear it first.').format(page))
         for page in pages:
             for name in self.pageItems(page):
-                self.trash(name, page)
+                if self.role(name) != 'sticker':    # stickers stay on the page
+                    self.trash(name, page)
 
         self.ensureStyles()
         errors = []
@@ -651,6 +624,13 @@ class ScPhotoBookWebGUI:
             self.setAttribute(newFrame, SLOT_ATTRIBUTE, str(len(created)))
             if layout:
                 self.setAttribute(newFrame, LAYOUT_ATTRIBUTE, layout)
+        # the stickers stay above the new frames
+        for page in pages:
+            for name in self.pageItems(page):
+                if self.role(name) == 'sticker':
+                    deselectAll()
+                    selectObject(name)
+                    moveSelectionToFront()
         deselectAll()
         return {'document': self.document(), 'errors': errors}
 
@@ -672,6 +652,54 @@ class ScPhotoBookWebGUI:
     def crop(self, frame, zoom, cx, cy):
         self.snapshot(frame)
         self.setCrop(frame, zoom, cx, cy)
+        return {'document': self.document()}
+
+    # --- stickers: color emojis drawn by the browser, placed as images
+
+    def stickerFolder(self):
+        name = getDocName() if haveDoc() else ''
+        if os.path.isabs(name):
+            base = os.path.dirname(name)
+        elif self.pool:
+            base = os.path.dirname(self.pool[0])
+        else:
+            base = os.path.expanduser('~')
+        folder = os.path.join(base, 'PhotoBook stickers')
+        os.makedirs(folder, exist_ok=True)
+        return folder
+
+    def addSticker(self, page, emoji, png, x, y, size):
+        data = base64.b64decode(png.split(',')[-1])
+        if data[:8] != b'\x89PNG\r\n\x1a\n':
+            raise ValueError('not a PNG image')
+        name = 'emoji-' + '-'.join('%x' % ord(c) for c in emoji if ord(c) not in (0xfe0f, 0x200d)) + '.png'
+        path = os.path.join(self.stickerFolder(), name)
+        if not os.path.isfile(path):
+            with open(path, 'wb') as f:
+                f.write(data)
+        gotoPage(page)
+        frame = createImage(x, y, size, size, ITEM_PREFIX + 'Sticker' + secrets.token_hex(4))
+        self.step['undo'].append(lambda: self.purge([frame]))
+        setFillColor('None', frame)
+        setLineColor('None', frame)
+        loadImage(path, frame)
+        setScaleImageToFrame(True, True, frame)
+        self.setAttribute(frame, ROLE_ATTRIBUTE, 'sticker')
+        deselectAll()
+        return {'document': self.document(), 'frame': frame}
+
+    def moveItem(self, frame, page, x, y, w, h):
+        """ Move and resize an item, possibly to another page."""
+        self.snapshot(frame)
+        gotoPage(page)
+        sizeObject(w, h, frame)
+        moveObjectAbs(x, y, frame)
+        if self.role(frame) == 'sticker':
+            setScaleImageToFrame(True, True, frame)
+        return {'document': self.document()}
+
+    def deleteItem(self, frame):
+        self.trash(frame, self.itemPage(frame))
         return {'document': self.document()}
 
     def editText(self, frame, text):
@@ -925,6 +953,14 @@ class WebApp:
         if path == '/api/apply':
             return maker.action('Layout', maker.apply, body['pages'], body['frames'], body.get('border'),
                 body.get('layout'))
+        if path == '/api/sticker':
+            return maker.action('Sticker', maker.addSticker, body['page'], body['emoji'], body['png'],
+                body['x'], body['y'], body['size'])
+        if path == '/api/move':
+            return maker.action('Move', maker.moveItem, body['frame'], body['page'],
+                body['x'], body['y'], body['w'], body['h'])
+        if path == '/api/delete':
+            return maker.action('Delete', maker.deleteItem, body['frame'])
         if path == '/api/text':
             return maker.action('Text', maker.editText, body['frame'], body['text'])
         if path == '/api/setimage':

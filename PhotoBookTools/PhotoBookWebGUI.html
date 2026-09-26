@@ -173,6 +173,12 @@ main > section + section { border-left: 1px solid var(--line); }
   width: 100%; height: 100%; word-wrap: break-word; }
 .ftext.caption { display: flex; align-items: center; justify-content: center; text-align: center; }
 
+.stickerbar { display: none; flex-direction: column; gap: 6px; padding: 6px 8px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); }
+.stickerbar.on { display: flex; }
+.stickerbar .emojis button { font-size: 22px; line-height: 28px; }
+.view svg .frame[data-kind=sticker] { cursor: move; }
+
 /* svg pages */
 svg .pg { fill: var(--page); }
 svg .pgline { fill: none; stroke: #b5b2ab; }
@@ -303,12 +309,29 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
         <strong id="stageTitle"></strong>
         <span id="targetInfo" class="muted"></span>
         <div class="spacer"></div>
+        <button id="stickerButton" title="Add a color emoji on the page" data-t-title>😀 <span data-t>Sticker</span></button>
         <button id="clearPages" class="danger" data-t>Erase page content</button>
       </div>
       <div id="clearConfirm" class="confirm">
         <span id="clearQuestion"></span>
         <button id="clearYes" class="danger" data-t>Erase</button>
         <button id="clearNo" data-t>Cancel</button>
+      </div>
+      <div id="stickerBar" class="stickerbar">
+        <div class="row" style="margin:0"><strong data-t>Add a sticker</strong>
+          <span class="muted" data-t>Click an emoji to put it on the page, then drag it where you want.</span></div>
+        <div id="stickerEmojis" class="emojis"></div>
+        <div class="row" style="margin:0">
+          <span data-t>Other emoji:</span>
+          <input id="stickerInput" type="text" style="width:70px; font-size:18px" autocomplete="off">
+          <button id="stickerAdd" data-t>Add</button>
+          <span class="muted" data-t>Type or paste any emoji (emoji picker: Ctrl+Cmd+Space on Mac, Windows+. on Windows).</span>
+        </div>
+      </div>
+      <div id="stickerTools" class="croptools">
+        <span data-t>Size</span> <input type="range" id="stickerSize" min="8" max="200" step="1">
+        <button id="stickerDelete" class="danger" data-t>Delete the sticker</button>
+        <span class="muted" data-t>Drag the sticker to move it.</span>
       </div>
       <div id="cropTools" class="croptools">
         <span data-t>Zoom</span> <input type="range" id="zoom" min="100" max="400" step="5">
@@ -317,7 +340,6 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
       </div>
       <div id="textTools" class="texttools">
         <textarea id="textEdit" rows="3" spellcheck="true"></textarea>
-        <div id="emojis" class="emojis"></div>
         <div class="row" style="margin:0">
           <span id="textInfo" class="muted"></span><div class="spacer"></div>
           <button id="textDone" class="primary" data-t>Done</button>
@@ -644,8 +666,11 @@ function pagesSvg(pages, opts) {
 function itemSvg(it, id, sw, opts) {
   const kind = it.kind === 'caption' ? 'text' : it.kind;
   const r = `x="${it.x}" y="${it.y}" width="${it.w}" height="${it.h}"`;
-  let s = `<g class="frame" data-name="${esc(it.name || '')}" data-kind="${kind}">`;
-  if (kind === 'image') {
+  let s = `<g class="frame" data-name="${esc(it.name || '')}" data-kind="${it.role === 'sticker' ? 'sticker' : kind}">`;
+  if (it.role === 'sticker') {    // transparent image, whole
+    if (it.image) s += `<image href="${imageUrl(it.image, 'full')}" ${r} preserveAspectRatio="xMidYMid meet"/>`;
+    if (opts.large) s += `<rect ${r} fill="transparent"/>`;
+  } else if (kind === 'image') {
     s += `<clipPath id="c${id}"><rect ${r}/></clipPath><rect class="fr" ${r} stroke-width="${sw}"/>`;
     if (it.image && canPreview(it.image)) {
       const href = imageUrl(it.image, opts.large ? 'full' : 'auto'), c = it.crop;
@@ -783,7 +808,8 @@ function bindView() {
     if (!g || e.button !== 0) return;
     gesture = {name: g.dataset.name, kind: g.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false};
     const it = itemByName(gesture.name);
-    if (gesture.name === picked && it && it.crop) Object.assign(gesture, {mode: 'pan', item: it, crop: it.crop.slice()});
+    if (gesture.kind === 'sticker') Object.assign(gesture, {mode: 'move', item: it, g, x: it.x, y: it.y});
+    else if (gesture.name === picked && it && it.crop) Object.assign(gesture, {mode: 'pan', item: it, crop: it.crop.slice()});
     view.setPointerCapture(e.pointerId);
   };
   view.onpointermove = e => {
@@ -791,7 +817,11 @@ function bindView() {
     const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
     if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
     gesture.moved = true;
-    if (gesture.mode === 'pan') {
+    if (gesture.mode === 'move') {
+      const k = view.getScreenCTM().a;
+      gesture.g.setAttribute('transform', `translate(${dx / k},${dy / k})`);
+      gesture.dx = dx / k; gesture.dy = dy / k;
+    } else if (gesture.mode === 'pan') {
       const k = view.getScreenCTM().a, it = gesture.item, c = gesture.crop;
       it.crop = [clamp(c[0] + dx / k, it.w - c[2], 0), clamp(c[1] + dy / k, it.h - c[3], 0), c[2], c[3]];
       moveImage(it);
@@ -808,14 +838,15 @@ function bindView() {
     view.style.cursor = '';
     if (!g) return;
     if (!g.moved) {
-      if ((g.kind === 'image' || g.kind === 'text') && g.name) {
+      if ((g.kind === 'image' || g.kind === 'text' || g.kind === 'sticker') && g.name) {
         if (picked && picked !== g.name) saveText();
         picked = picked === g.name ? null : g.name;
         message(picked && g.kind === 'image'
           ? t('Click one of the selected images to put it in the frame, or drag an image onto it.') : '');
         renderStage(); renderChosenBar(); renderTextTools(true);
       } else toggleTarget(pageOfItem(g.name));
-    } else if (g.mode === 'pan') commitCrop(g.item);
+    } else if (g.mode === 'move') moveSticker(g.item, g.item.x + g.dx, g.item.y + g.dy, g.item.w);
+    else if (g.mode === 'pan') commitCrop(g.item);
     else if (g.mode === 'swap') {
       const other = dropTarget;
       dropTarget = null;
@@ -867,7 +898,9 @@ function moveImage(it) {
 }
 function renderCropTools() {
   const it = picked && itemByName(picked);
-  $('cropTools').classList.toggle('on', !!(it && it.crop && it.kind === 'image'));
+  $('cropTools').classList.toggle('on', !!(it && it.crop && it.kind === 'image' && it.role !== 'sticker'));
+  $('stickerTools').classList.toggle('on', !!(it && it.role === 'sticker'));
+  if (it && it.role === 'sticker') $('stickerSize').value = Math.round(it.w / mm(1));
   if (it && it.crop) $('zoom').value = Math.round(cropState(it).zoom * 100);
 }
 function zoomTo(z) {
@@ -886,8 +919,79 @@ async function commitCrop(it) {
     renderAll();
   });
 }
+// ---------- stickers: color emojis, as images
+
+// file name of an emoji in Twemoji: its code points, without FE0F unless it is a sequence with ZWJ
+function twemojiCode(emoji) {
+  const points = [...emoji].map(c => c.codePointAt(0));
+  return (points.includes(0x200d) ? points : points.filter(p => p !== 0xfe0f)).map(p => p.toString(16)).join('-');
+}
+
+// PNG of the emoji, 1024 pixels: the Twemoji drawing (sharp at any size) if it can be loaded,
+// or the emoji of the system (Apple, Microsoft...)
+async function emojiPng(emoji) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+  try {
+    const r = await fetch('https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/' + twemojiCode(emoji) + '.svg');
+    if (!r.ok) throw new Error(r.status);
+    const url = URL.createObjectURL(new Blob([await r.text()], {type: 'image/svg+xml'}));
+    const img = new Image();
+    await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = url; });
+    ctx.drawImage(img, 32, 32, 960, 960);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    ctx.font = '860px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    ctx.textAlign = 'center';
+    const m = ctx.measureText(emoji);
+    const h = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    ctx.fillText(emoji, 512 + (m.actualBoundingBoxLeft - m.actualBoundingBoxRight) / 2,
+      512 + m.actualBoundingBoxAscent - h / 2);
+  }
+  return canvas.toDataURL('image/png');
+}
+
+async function addSticker(emoji) {
+  const sp = currentSpread(), p = sp.find(p => target.has(p.page)) || sp[0];
+  if (!p) return;
+  const size = mm(40);
+  await run(async () => {
+    const png = await emojiPng(emoji);
+    const r = await api('/api/sticker', {page: p.page, emoji, png,
+      x: (p.width - size) / 2, y: (p.height - size) / 2, size});
+    doc = r.document; dirty = true;
+    picked = r.frame;
+    $('stickerBar').classList.remove('on');
+    renderAll();
+  });
+}
+
+// move a sticker (x in the coordinates of its double page view) and resize it
+async function moveSticker(it, x, y, size) {
+  const sp = currentSpread(), from = sp.find(p => p.items.includes(it)) || sp[0];
+  let offset = 0;
+  for (const p of sp) { if (p === from) break; offset += p.width; }
+  // the page under the center of the sticker
+  let cx = offset + x + size / 2, page = sp[0], left = 0;
+  for (const p of sp) {
+    if (cx >= left && cx < left + p.width) { page = p; break; }
+    left += p.width;
+    page = p;
+  }
+  let pageLeft = 0;
+  for (const p of sp) { if (p === page) break; pageLeft += p.width; }
+  await run(async () => {
+    doc = (await api('/api/move', {frame: it.name, page: page.page,
+      x: offset + x - pageLeft, y, w: size, h: size})).document;
+    dirty = true;
+    renderAll();
+  });
+}
+
 // ---------- texts of captions and text blocks
 
+// emojis of the stickers
 const EMOJIS = ('😀 😂 😊 😍 🥰 😘 😎 🤩 🥳 😢 😮 😴 👍 👏 🙏 💪 👋 ❤️ 💕 💖 💙 💚 💛 ⭐ ✨ 🎉 🎂 🎁 🎈 '
   + '🌞 🌈 🌸 🌻 🍀 🌊 🏖️ ⛰️ 🏕️ ✈️ 🚗 🚲 🏠 👶 👧 👦 👨‍👩‍👧 🐶 🐱 🐴 ⚽ 🎄 🍾 🍰 ☕').split(' ');
 const PLACEHOLDERS = () => [t('Caption'), t('Your text here')];
@@ -902,15 +1006,22 @@ function renderTextTools(reset) {
     textFrame = it.name;
     $('textEdit').value = textSaved = PLACEHOLDERS().includes(it.text) ? '' : (it.text || '');
     $('textEdit').placeholder = it.role === 'caption' ? t('Write the caption…') : t('Write your text…');
-    $('textInfo').textContent = doc.emojiFont ? ''
-      : t('Emojis need an emoji font such as Noto Emoji installed, otherwise Scribus cannot print them.');
-    $('textInfo').className = 'muted';
+    textWarning(false);
     $('textEdit').focus();
   }
+}
+// emojis are not printed in texts (Scribus has no color emoji fonts): stickers are
+const hasEmoji = text => /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(text);
+function textWarning(overflow) {
+  const text = overflow ? t('The text is too long for the frame: shorten it, or enlarge the frame in Scribus.')
+    : hasEmoji($('textEdit').value) ? t('Emojis are not printed in texts: use the Sticker button for color emojis.') : '';
+  $('textInfo').textContent = text;
+  $('textInfo').className = text ? 'warning' : 'muted';
 }
 function textChanged() {
   const it = itemByName(textFrame);
   if (!it) return;
+  textWarning(false);
   it.text = $('textEdit').value;    // shown at once, saved after a pause
   const g = [...$('view').querySelectorAll('.frame')].find(g => g.dataset.name === it.name);
   const div = g && g.querySelector('.ftext');
@@ -930,18 +1041,9 @@ async function saveText() {
     const r = await api('/api/text', {frame, text});
     doc = r.document; dirty = true;
     renderHeader(); renderSpreads();
-    const info = r.overflow ? t('The text is too long for the frame: shorten it, or enlarge the frame in Scribus.') : '';
-    if (info || doc.emojiFont) { $('textInfo').textContent = info; $('textInfo').className = info ? 'warning' : 'muted'; }
+    textWarning(r.overflow);
   } catch (e) { message(e.message, true); }
 }
-function insertEmoji(emoji) {
-  const ta = $('textEdit'), start = ta.selectionStart, end = ta.selectionEnd;
-  ta.value = ta.value.slice(0, start) + emoji + ta.value.slice(end);
-  ta.selectionStart = ta.selectionEnd = start + emoji.length;
-  ta.focus();
-  textChanged();
-}
-
 async function swapImages(first, second) {
   await run(async () => {
     doc = (await api('/api/swap', {first, second})).document;
@@ -1121,7 +1223,7 @@ function proposals() {
 
 // name of the layout applied by this page on the target pages, if they have only its items
 function appliedLayout(tp) {
-  const items = tp.flatMap(p => p.items);
+  const items = tp.flatMap(p => p.items).filter(i => i.role !== 'sticker');
   if (!items.length || items.some(i => !i.app || !i.layout)) return null;
   const sig = items[0].layout;
   return items.every(i => i.layout === sig) ? sig : null;
@@ -1132,7 +1234,7 @@ async function reapply() {
   const sp = currentSpread(), tp = sp.filter(p => target.has(p.page)), sig = appliedLayout(tp);
   if (!sig) return;
   const items = tp.flatMap(p => p.items).sort((a, b) => a.slot - b.slot);
-  const of = role => items.filter(i => i.role === role);
+  const of = role => items.filter(i => i.role === role);    // stickers are not in the layout
   const images = of('image'), captions = of('caption'), texts = of('text');
   const found = layoutsFor(tp, images.length, images.map(i => ({path: i.image, size: null})), options())
     .find(p => p.sig === sig);
@@ -1635,19 +1737,48 @@ async function start() {
     $(id).addEventListener('input', () => { updateGapInfo(); if (doc) renderLayouts(); });
     $(id).addEventListener('change', () => { if (doc) reapply(); });    // the current layout follows
   }
+  $('stickerButton').onclick = () => $('stickerBar').classList.toggle('on');
+  EMOJIS.forEach(emoji => {
+    const b = document.createElement('button');
+    b.textContent = emoji;
+    b.onclick = () => addSticker(emoji);
+    $('stickerEmojis').appendChild(b);
+  });
+  // any emoji: the first character (grapheme) typed or pasted
+  const addTyped = () => {
+    const value = $('stickerInput').value.trim();
+    const first = value && [...new Intl.Segmenter().segment(value)][0].segment;
+    if (!first || !hasEmoji(first)) { message(t('Type or paste an emoji first.'), true); return; }
+    $('stickerInput').value = '';
+    addSticker(first);
+  };
+  $('stickerAdd').onclick = addTyped;
+  $('stickerInput').onkeydown = e => { if (e.key === 'Enter') addTyped(); };
+  $('stickerSize').oninput = () => {
+    const it = itemByName(picked), g = [...$('view').querySelectorAll('.frame')].find(g => g.dataset.name === picked);
+    if (!it || !g) return;
+    const size = mm($('stickerSize').value), d = (size - it.w) / 2;
+    g.setAttribute('transform', `translate(${-d},${-d}) scale(1)`);
+    g.querySelectorAll('image, rect').forEach(r => { r.setAttribute('width', size); r.setAttribute('height', size);
+      r.setAttribute('x', it.x); r.setAttribute('y', it.y); });
+  };
+  $('stickerSize').onchange = () => {
+    const it = itemByName(picked);
+    if (!it) return;
+    const size = mm($('stickerSize').value);
+    moveSticker(it, it.x - (size - it.w) / 2, it.y - (size - it.w) / 2, size);    // resized around its center
+  };
+  $('stickerDelete').onclick = () => run(async () => {
+    doc = (await api('/api/delete', {frame: picked})).document;
+    dirty = true; picked = null;
+    renderAll();
+  });
   $('textEdit').oninput = textChanged;
   $('textEdit').onblur = () => { if (textTimer) saveText(); };
   $('textDone').onclick = async () => {
     await saveText();
     picked = null; renderStage(); renderChosenBar(); renderTextTools();
   };
-  EMOJIS.forEach(emoji => {
-    const b = document.createElement('button');
-    b.textContent = emoji;
-    b.onmousedown = e => e.preventDefault();    // keep the cursor in the text
-    b.onclick = () => insertEmoji(emoji);
-    $('emojis').appendChild(b);
-  });
   $('undoButton').onclick = undo;
   $('zoom').oninput = () => zoomTo($('zoom').value / 100);
   $('zoom').onchange = () => { const it = itemByName(picked); if (it && it.crop) commitCrop(it); };
