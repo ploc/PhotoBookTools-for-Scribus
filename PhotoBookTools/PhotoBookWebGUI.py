@@ -24,9 +24,10 @@ Scribus does not respond to clicks while the page is open.
 ##################################################
 # imports
 import sys, platform, os, json, time, secrets, struct, mimetypes, webbrowser
-import shutil, subprocess, tempfile, hashlib, base64, socket, threading
+import shutil, subprocess, tempfile, hashlib, base64, threading, queue
 from configparser import ConfigParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 
 try:
@@ -249,6 +250,41 @@ def convertImage(path, out, size=None):
 
 CONVERSIONS = threading.Semaphore(4)
 
+def needsPreview(path, info, size):
+    """ True if the browser needs a smaller copy of the image (see thumbnail)."""
+    lower = path.lower()
+    if lower.endswith(('.jpg', '.jpeg')) and size <= 400 and 'thumbnail' in info \
+            and info.get('orientation', 1) == 1:
+        return False    # the EXIF thumbnail is enough
+    if not lower.endswith(BROWSER_EXTENSIONS):
+        return True
+    return not lower.endswith(('.png', '.gif')) and max(info.get('size') or (size + 1, 0)) > size
+
+class Previews(threading.Thread):
+    """ Makes the small copies of the images of the book in advance, one at a time,
+        so that the page shows them at once."""
+    def __init__(self):
+        threading.Thread.__init__(self, daemon=True)
+        self.queue, self.seen = queue.Queue(), set()
+        self.start()
+
+    def add(self, paths):
+        for path in paths:
+            if path not in self.seen:
+                self.seen.add(path)
+                self.queue.put(path)
+
+    def run(self):
+        while True:
+            path = self.queue.get()
+            try:
+                if CONVERTER and os.path.isfile(path) and needsPreview(path, readImageInfo(path), 400):
+                    cachedPreview(path, 400)
+            except Exception:
+                pass
+
+PREVIEWS = Previews()
+
 def cachedPreview(path, size):
     """ JPEG preview of an image for the browser, kept in a temporary folder."""
     if not CONVERTER:
@@ -342,6 +378,7 @@ class ScPhotoBookWebGUI:
         """ Setup basic things """
         self.config = ConfigParser()
         self.config.read(CONFIG_FILE)
+        self.infos = {}                # image file -> information, with its date and size
         self.pool = self.readPool()    # images chosen for the book
         self.undoSteps = []            # [{'label', 'undo': [functions], 'trash': [items]}]
         self.step = None
@@ -920,26 +957,36 @@ class ScPhotoBookWebGUI:
             return {}
 
     def readPool(self):
+        """ The images of the book, and what is known about them (see imageInfo)."""
+        data = {}
         if self.poolFile():
             try:
                 with open(self.poolFile()) as f:
-                    return json.load(f).get('images', [])
+                    data = json.load(f)
             except (OSError, ValueError):
-                return []
-        return self.unsavedPools().get(getDocName() if haveDoc() else '', [])
+                pass
+        else:
+            data = self.unsavedPools().get(getDocName() if haveDoc() else '', {})
+            if isinstance(data, list):    # older format: the list of the images
+                data = {'images': data}
+        self.infos.update(data.get('infos', {}))
+        pool = data.get('images', [])
+        PREVIEWS.add(pool)
+        return pool
 
     def writePool(self):
+        data = {'images': self.pool, 'infos': {p: self.infos[p] for p in self.pool if p in self.infos}}
         pools = self.unsavedPools()
         key = getDocName() if haveDoc() else ''
         if self.poolFile():
             with open(self.poolFile(), 'w') as f:
-                json.dump({'images': self.pool}, f, indent=1)
+                json.dump(data, f, indent=1)
             if key in pools:
                 del pools[key]
             else:
                 return
         else:
-            pools[key] = self.pool
+            pools[key] = data
         with open(UNSAVED_FILE, 'w') as f:
             json.dump(pools, f, indent=1)
 
@@ -961,21 +1008,34 @@ class ScPhotoBookWebGUI:
             if path not in pool:
                 pool.append(path)
         self.pool = pool
+        infos = self.poolInfo()
         self.writePool()
-        return {'pool': self.poolInfo(), 'converted': converted, 'failed': failed}
+        PREVIEWS.add(pool)
+        return {'pool': infos, 'converted': converted, 'failed': failed}
 
     def imageInfo(self, path):
+        """ What the page shows about an image. Kept with the images of the book and read
+            again only when the file changes: opening a book does not read all its photos."""
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return {'name': os.path.basename(path), 'path': path, 'exists': False, 'preview': False}
+        known = self.infos.get(path)
+        if known and known.get('stat') == [stat.st_mtime, stat.st_size]:
+            return known
         info = readImageInfo(path)
         lower = path.lower()
         date, dateFrom = info.get('date'), 'exif'
-        if not date and os.path.isfile(path):    # no EXIF date: the date of the file
-            date = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(os.path.getmtime(path)))
+        if not date:    # no EXIF date: the date of the file
+            date = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(stat.st_mtime))
             dateFrom = 'file'
-        return {'name': os.path.basename(path), 'path': path, 'size': info.get('size'),
+        known = {'name': os.path.basename(path), 'path': path, 'size': info.get('size'),
             'date': date, 'dateFrom': dateFrom,
             'orientation': info.get('orientation', 1), 'thumb': 'thumbnail' in info,
             'preview': lower.endswith(BROWSER_EXTENSIONS) or bool(CONVERTER),
-            'exists': os.path.isfile(path)}
+            'exists': True, 'stat': [stat.st_mtime, stat.st_size]}
+        self.infos[path] = known
+        return known
 
     def poolInfo(self):
         return [self.imageInfo(path) for path in self.pool]
@@ -1014,6 +1074,7 @@ class ScPhotoBookWebGUI:
                 dirs.append({'name': name, 'path': path})
             elif name.lower().endswith(IMAGE_EXTENSIONS):
                 images.append(self.imageInfo(path))
+        PREVIEWS.add([i['path'] for i in images])
         parent = os.path.dirname(folder)
         return {'folder': folder, 'parent': parent if parent != folder else None,
             'dirs': dirs, 'images': images}
@@ -1037,8 +1098,7 @@ class ScPhotoBookWebGUI:
                 data = f.read(length)
             if data[:2] == b'\xff\xd8':
                 return 'image/jpeg', data
-        if not lower.endswith(BROWSER_EXTENSIONS) or (not lower.endswith(('.png', '.gif'))
-                and max(info.get('size') or (size + 1, 0)) > size):
+        if needsPreview(path, info, size):
             # a smaller copy (PNG and GIF, as the stickers, keep their transparency)
             preview = cachedPreview(path, size)
             if preview:
@@ -1053,26 +1113,14 @@ class ScPhotoBookWebGUI:
 # thread, so the handlers can call the Scribus API
 
 class Server(HTTPServer):
-    """ Requests of images are served in threads, so that the page shows them quickly
-        and the other requests do not wait for them; the other requests, which use
-        Scribus, are handled one at a time in Scribus's main thread."""
-    request_queue_size = 64    # the page loads many thumbnails at once
+    """ The page and the actions: one request at a time, in Scribus's main thread."""
+    request_queue_size = 64
 
-    def process_request(self, request, client_address):
-        try:
-            image = request.recv(16, socket.MSG_PEEK).startswith(b'GET /image')
-        except OSError:
-            image = False
-        if not image:
-            return HTTPServer.process_request(self, request, client_address)
-        def serve():
-            try:
-                self.finish_request(request, client_address)
-            except Exception:
-                self.handle_error(request, client_address)
-            finally:
-                self.shutdown_request(request)
-        threading.Thread(target=serve, daemon=True).start()
+class ImageServer(ThreadingMixIn, HTTPServer):
+    """ The images, on another port: served in threads, and the browser uses other
+        connections for them, so that the actions never wait behind the images."""
+    daemon_threads = True
+    request_queue_size = 128
 
 class WebApp:
     """ Serve the page and route its requests to ScPhotoBookWebGUI."""
@@ -1099,6 +1147,17 @@ class WebApp:
         self.server.timeout = 0.5
         self.url = 'http://127.0.0.1:{}/?token={}'.format(self.server.server_port, self.token)
 
+        class ImageHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                app.handleImage(self)
+
+        self.images = ImageServer(('127.0.0.1', 0), ImageHandler)
+        self.imageBase = 'http://127.0.0.1:{}'.format(self.images.server_port)
+        threading.Thread(target=self.images.serve_forever, daemon=True).start()
+
     def send(self, request, status, contentType, data, cache=False):
         request.send_response(status)
         request.send_header('Content-Type', contentType)
@@ -1107,6 +1166,20 @@ class WebApp:
         request.send_header('Cache-Control', 'private, max-age=86400' if cache else 'no-store')
         request.end_headers()
         request.wfile.write(data)
+
+    def handleImage(self, request):
+        """ In a thread of the image server: no Scribus function here."""
+        url = urlparse(request.path)
+        query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if query.get('token') != self.token or url.path != '/image':
+            return self.send(request, 403, 'text/plain', b'Forbidden')
+        try:
+            result = self.maker.thumbnail(query.get('path', ''), query.get('mode', 'full'))
+        except Exception:
+            result = None
+        if result is None:
+            return self.send(request, 404, 'text/plain', b'Not found')
+        return self.send(request, 200, *result, cache=True)
 
     def handle(self, request, method):
         self.lastRequest = time.time()
@@ -1123,11 +1196,6 @@ class WebApp:
             if url.path == '/':
                 with open(PAGE_FILE, 'rb') as f:
                     return self.send(request, 200, 'text/html; charset=utf-8', f.read())
-            if url.path == '/image':
-                result = self.maker.thumbnail(query.get('path', ''), query.get('mode', 'full'))
-                if result is None:
-                    return self.send(request, 404, 'text/plain', b'Not found')
-                return self.send(request, 200, *result, cache=True)
             result = self.route(url.path, body)
             if result is None:
                 return self.send(request, 404, 'text/plain', b'Not found')
@@ -1141,7 +1209,7 @@ class WebApp:
         maker = self.maker
         if path == '/api/state':
             self.closedAt = None
-            return maker.state()
+            return dict(maker.state(), imageBase=self.imageBase)
         if path == '/api/ping':
             self.closedAt = None
             return {}
@@ -1212,6 +1280,8 @@ class WebApp:
             if now - self.lastRequest > 600:
                 self.finished = True    # page gone (the page pings every few seconds)
         self.server.server_close()
+        self.images.shutdown()
+        self.images.server_close()
 
 ##################################################
 # Start program

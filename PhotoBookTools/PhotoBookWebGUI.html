@@ -84,7 +84,12 @@ main > section + section { border-left: 1px solid var(--line); }
   background: var(--line); display: flex; align-items: center; justify-content: center;
   overflow: hidden; color: var(--muted); font-size: 10px;
 }
-.img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .25s; }
+/* grey, pulsing, until the thumbnail is ready */
+.img.waiting { animation: waiting 1.4s ease-in-out infinite; }
+.img.ready img { opacity: 1; }
+@keyframes waiting { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .img.waiting { animation: none; } }
 .groupitems.grid .item .name { display: none; }
 .groupitems.list .item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
 .groupitems.list .item .img { display: none; }
@@ -584,7 +589,8 @@ async function api(path, body) {
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
-const imageUrl = (path, mode) => '/image?token=' + token + '&mode=' + mode
+// the images come from their own server (S.imageBase): the actions do not wait behind them
+const imageUrl = (path, mode) => (S && S.imageBase || '') + '/image?token=' + token + '&mode=' + mode
   + '&path=' + encodeURIComponent(path);
 
 let toastTimer = null;
@@ -1507,7 +1513,7 @@ function poolItem(im, used) {
   const pages = used[im.path];
   d.title = im.name + (im.size ? ` (${im.size[0]} × ${im.size[1]})` : '')
     + (im.date ? '\n' + im.date.replace('T', ' ') + (im.dateFrom === 'file' ? ' (' + t('date of the file') + ')' : '') : '');
-  d.innerHTML = `<div class="img">${thumbHtml(im)}</div>`
+  d.innerHTML = `<div class="img${im.preview ? ' waiting' : ''}">${thumbHtml(im)}</div>`
     + (n >= 0 ? `<span class="badge">${n + 1}</span>` : '')
     + `<span class="name"></span>`
     + (pages ? `<span class="used">${esc(fmt('p. {}', pages.join(', ')))}</span>` : '')
@@ -1528,7 +1534,13 @@ const ROTATION = {3: 180, 4: 180, 5: 90, 6: 90, 7: -90, 8: -90};
 function thumbHtml(im) {
   if (!im.preview) return esc(im.name.split('.').pop().toUpperCase());
   const rot = im.thumb ? ROTATION[im.orientation] : 0;
-  return `<img loading="lazy" src="${imageUrl(im.path, 'thumb')}"${rot ? ` style="transform:rotate(${rot}deg)"` : ''} alt="">`;
+  return `<img loading="lazy" src="${imageUrl(im.path, 'thumb')}"${rot ? ` style="transform:rotate(${rot}deg)"` : ''} alt=""`
+    + ` onload="thumbReady(this)" onerror="thumbReady(this)">`;
+}
+// the thumbnail is shown once loaded; until then its place is grey
+function thumbReady(img) {
+  img.parentNode.classList.remove('waiting');
+  img.parentNode.classList.add('ready');
 }
 
 function renderChosenBar() {
@@ -1542,7 +1554,7 @@ function renderChosenBar() {
     const d = document.createElement('div');
     d.className = 'item';
     d.title = picked ? t('Put this image in the selected frame') : im.name;
-    d.innerHTML = `<div class="img">${thumbHtml(im)}</div><span class="badge">${i + 1}</span>`;
+    d.innerHTML = `<div class="img${im.preview ? ' waiting' : ''}">${thumbHtml(im)}</div><span class="badge">${i + 1}</span>`;
     d.onclick = () => picked ? replaceImage(path)
       : showImage(chosen.map(p => pool.find(im => im.path === p)), i);
     d.draggable = true;
@@ -1635,7 +1647,7 @@ function renderBrowser() {
     const isIn = inBook.has(im.path);
     b.className = 'file' + (checked.has(im.path) ? ' checked' : '') + (isIn ? ' inbook' : '');
     b.title = im.name + (isIn ? ' — ' + t('already in the book') : '');
-    b.innerHTML = `<div class="img">${thumbHtml(im)}</div><div class="name"></div><span class="check">✓</span>`
+    b.innerHTML = `<div class="img${im.preview ? ' waiting' : ''}">${thumbHtml(im)}</div><div class="name"></div><span class="check">✓</span>`
       + qualityHtml(im);
     b.querySelector('.name').textContent = im.name;
     b.onclick = () => {
