@@ -95,7 +95,25 @@ FRENCH = {
     'PhotoBook': 'LivrePhoto',
     'Save': 'Enregistrer',
     'Close': 'Fermer',
-    'You can close this tab.': 'Vous pouvez fermer cet onglet.',
+    'Closing…': 'Fermeture…',
+    'The book is being saved and Scribus is given back. Please wait.':
+        'Le livre est en cours d\'enregistrement et Scribus va être rendu. Veuillez patienter.',
+    'Closed': 'Fermé',
+    'The book is saved.': 'Le livre est enregistré.',
+    'You can close this tab and go back to Scribus. Scribus may take a few seconds to redraw the pages.':
+        'Vous pouvez fermer cet onglet et revenir à Scribus. Scribus peut mettre quelques secondes '
+        'à redessiner les pages.',
+    'Not saved yet: choose a file with Save': 'Pas encore enregistré : choisissez un fichier avec Enregistrer',
+    'Saving…': 'Enregistrement…',
+    'Saved': 'Enregistré',
+    'Saved at {}': 'Enregistré à {}',
+    'The book is saved in {}': 'Le livre est enregistré dans {}',
+    'Rotate left': 'Tourner vers la gauche',
+    'Rotate right': 'Tourner vers la droite',
+    'Mirror left-right': 'Miroir gauche-droite',
+    'Mirror up-down': 'Miroir haut-bas',
+    'This image cannot be rotated: no converter (sips or Pillow) found.':
+        'Cette image ne peut pas être tournée : aucun convertisseur (sips ou Pillow) trouvé.',
     # images of the book
     'Book images': 'Images du livre',
     'Thumbnails': 'Vignettes',
@@ -111,6 +129,28 @@ FRENCH = {
     'Show large': 'Afficher en grand',
     'Remove from the book': 'Retirer du livre',
     'Add images': 'Ajouter des images',
+    'All': 'Toutes',
+    'Folders': 'Dossiers',
+    'Days': 'Jours',
+    'Fold all': 'Tout replier',
+    'Unfold all': 'Tout déplier',
+    'Select': 'Choisir',
+    'Select these images for a layout': 'Sélectionner ces images pour une mise en page',
+    'No date': 'Sans date',
+    'date of the file': 'date du fichier',
+    'Low': 'Faible',
+    '{} × {} pixels: {} dpi on a whole page.': '{} × {} pixels : {} ppp sur une page entière.',
+    'Good for a whole page.': 'Convient pour une page entière.',
+    'Good up to half a page.': 'Convient jusqu\'à une demi-page.',
+    'Only for small frames.': 'Seulement pour de petits cadres.',
+    'Low resolution: {} dpi in this frame (150 or more recommended).':
+        'Résolution faible : {} ppp dans ce cadre (150 ou plus recommandé).',
+    'This text was formatted in Scribus (fonts, sizes, colors…): changing it here puts it back in the default style, and that formatting is lost.':
+        'Ce texte a été mis en forme dans Scribus (polices, tailles, couleurs…) : le modifier ici le remet '
+        'dans le style par défaut, et cette mise en forme est perdue.',
+    'Updating the layout will lose the formatting made in Scribus on the texts of this page.':
+        'Mettre à jour la mise en page fera perdre la mise en forme faite dans Scribus sur les textes de cette page.',
+    'Update anyway': 'Mettre à jour quand même',
     'Parent folder': 'Dossier parent',
     'Select the whole folder': 'Sélectionner tout le dossier',
     'Add to the book': 'Ajouter au livre',
@@ -199,6 +239,8 @@ FRENCH = {
     # undo steps (PhotoBookWebGUI.py)
     'Move': 'déplacement',
     'Text': 'texte',
+    'Rotation': 'rotation',
+    'Mirror': 'miroir',
     'Add pages': 'ajout de pages',
     'Insert pages': 'insertion de pages',
     'Move a double page': 'déplacement de double page',
@@ -229,7 +271,6 @@ FRENCH = {
     'Create the book': 'Créer le livre',
     'Save the book': 'Enregistrer le livre',
     'File': 'Fichier',
-    'Saved in {}': 'Enregistré dans {}',
     'The book has changes that are not saved.':
         'Le livre a des modifications qui ne sont pas enregistrées.',
     'Close without saving': 'Fermer sans enregistrer',

@@ -73,36 +73,35 @@ main > section { min-height: 0; overflow: auto; padding: 12px 14px; }
 main > section + section { border-left: 1px solid var(--line); }
 
 /* left: images of the book */
-.pool.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
-.pool.list { display: flex; flex-direction: column; gap: 2px; }
+
 .item {
   position: relative; border: 2px solid transparent; border-radius: 6px; background: var(--panel);
   cursor: pointer; user-select: none;
 }
 .item.chosen { border-color: var(--accent); }
-.pool.grid .item .img { aspect-ratio: 1; border-radius: 4px; }
+.groupitems.grid .item .img { aspect-ratio: 1; border-radius: 4px; }
 .img {
   background: var(--line); display: flex; align-items: center; justify-content: center;
   overflow: hidden; color: var(--muted); font-size: 10px;
 }
 .img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.pool.grid .item .name { display: none; }
-.pool.list .item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
-.pool.list .item .img { display: none; }
-.pool.list .item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.groupitems.grid .item .name { display: none; }
+.groupitems.list .item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
+.groupitems.list .item .img { display: none; }
+.groupitems.list .item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge {
   min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px;
   background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 600;
   display: inline-flex; align-items: center; justify-content: center;
 }
-.pool.grid .badge { position: absolute; top: 3px; left: 3px; }
+.groupitems.grid .badge { position: absolute; top: 3px; left: 3px; }
 .used { font-size: 10px; color: var(--muted); white-space: nowrap; }
-.pool.grid .used {
+.groupitems.grid .used {
   position: absolute; bottom: 3px; left: 3px; background: var(--panel); border-radius: 4px; padding: 0 4px;
 }
 .item .tools { display: flex; gap: 2px; }
-.pool.grid .item .tools { position: absolute; top: 2px; right: 2px; display: none; }
-.pool.grid .item:hover .tools { display: flex; }
+.groupitems.grid .item .tools { position: absolute; top: 2px; right: 2px; display: none; }
+.groupitems.grid .item:hover .tools { display: flex; }
 .tools button { padding: 0 5px; font-size: 11px; line-height: 16px; }
 .missing .name { text-decoration: line-through; }
 
@@ -165,6 +164,12 @@ main > section + section { border-left: 1px solid var(--line); }
 .emojis button:hover { border-color: var(--line); background: var(--panel); }
 .warning { color: var(--danger); }
 .layout.current { border-color: var(--accent); background: var(--accent-soft); }
+#saveState { font-size: 12px; white-space: nowrap; }
+#saveState.saved { color: #3f8f53; }
+#saveState.unsaved { color: var(--danger); }
+#toast.ok { background: #3f8f53; }
+#closed h3 { margin: 0 0 8px; font-size: 18px; }
+#closed .box { max-width: 520px; text-align: center; line-height: 1.5; }
 #toast {
   position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 30; display: none;
   background: var(--danger); color: #fff; padding: 8px 14px; border-radius: 6px; box-shadow: var(--shadow); max-width: 70vw;
@@ -178,6 +183,32 @@ main > section + section { border-left: 1px solid var(--line); }
 .stickerbar.on { display: flex; }
 .stickerbar .emojis button { font-size: 22px; line-height: 28px; }
 .view svg .frame[data-kind=sticker] { cursor: move; }
+
+/* views of the images of the book */
+.viewmodes { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.viewmodes button { border: 0; border-radius: 0; padding: 3px 9px; }
+.viewmodes button + button { border-left: 1px solid var(--line); }
+.group + .group { margin-top: 8px; }
+.grouphead {
+  display: flex; align-items: center; gap: 6px; padding: 4px 2px; cursor: pointer; user-select: none;
+  position: sticky; top: -12px; background: var(--bg); z-index: 1;
+}
+.grouphead .gname { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grouphead .fold { width: 14px; color: var(--muted); }
+.grouphead button { padding: 0 6px; font-size: 11px; line-height: 18px; }
+.group.folded .groupitems { display: none; }
+.groupitems.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.groupitems.list { display: flex; flex-direction: column; gap: 2px; }
+.q {
+  font-size: 9px; font-weight: 700; letter-spacing: .03em; border-radius: 3px; padding: 0 3px; line-height: 13px;
+  color: #fff; background: #3f8f53;
+}
+.q.ok { background: #8a7a2e; }
+.q.low { background: var(--danger); }
+.groupitems.grid .item .q, .file .q { position: absolute; bottom: 3px; right: 3px; }
+svg .styled { stroke: #e08a1e; }
+svg .lowres rect { fill: #b3412f; }
+svg .lowres text { fill: #fff; font-weight: 700; }
 
 /* svg pages */
 svg .pg { fill: var(--page); }
@@ -240,7 +271,7 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 #closed {
   position: fixed; inset: 0; background: var(--bg); display: none; z-index: 20;
-  align-items: center; justify-content: center; font-size: 16px;
+  align-items: center; justify-content: center; font-size: 16px; padding: 20px;
 }
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; overflow: auto; }
@@ -255,6 +286,7 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
   <h1 data-t>PhotoBook Web GUI</h1>
   <span id="docName" class="muted"></span>
   <div class="spacer"></div>
+  <span id="saveState"></span>
   <button id="undoButton" title="Undo (Ctrl+Z)" data-t-title>↶</button>
   <button id="saveButton" data-t>Save</button>
   <button id="closeButton" data-t>Close</button>
@@ -272,8 +304,16 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
       <div class="spacer"></div>
       <button id="clearChosen" data-t>Clear selection</button>
     </div>
+    <div class="row">
+      <div class="viewmodes">
+        <button id="modeAll" data-t>All</button><button id="modeFolders" data-t>Folders</button><button id="modeDays" data-t>Days</button>
+      </div>
+      <div class="spacer"></div>
+      <button id="foldAll" class="icon" title="Fold all" data-t-title>▸</button>
+      <button id="unfoldAll" class="icon" title="Unfold all" data-t-title>▾</button>
+    </div>
     <div id="chosenInfo" class="muted" style="margin-bottom:6px"></div>
-    <div id="pool" class="pool grid"></div>
+    <div id="pool" class="pool"></div>
   </section>
 
   <!-- current page or double page -->
@@ -302,6 +342,11 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
           </select></label>
       </div>
       <div id="layoutsInfo" class="muted" style="margin-top:6px"></div>
+      <div id="reapplyConfirm" class="confirm" style="margin-top:6px">
+        <span class="warning" data-t>Updating the layout will lose the formatting made in Scribus on the texts of this page.</span>
+        <button id="reapplyYes" data-t>Update anyway</button>
+        <button id="reapplyNo" data-t>Cancel</button>
+      </div>
       <div id="layouts" class="layouts" style="margin-top:6px"></div>
     </div>
     <div class="stage">
@@ -336,6 +381,10 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
       <div id="cropTools" class="croptools">
         <span data-t>Zoom</span> <input type="range" id="zoom" min="100" max="400" step="5">
         <button id="cropReset" data-t>Fill the frame</button>
+        <button id="rotateLeft" class="icon" title="Rotate left" data-t-title>⟲</button>
+        <button id="rotateRight" class="icon" title="Rotate right" data-t-title>⟳</button>
+        <button id="mirrorH" class="icon" title="Mirror left-right" data-t-title>⇋</button>
+        <button id="mirrorV" class="icon" title="Mirror up-down" data-t-title>⇅</button>
         <span class="muted" data-t>Drag the image to move it in the frame.</span>
       </div>
       <div id="textTools" class="texttools">
@@ -497,7 +546,7 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
 </div>
 
 <div id="toast"></div>
-<div id="closed" data-t>You can close this tab.</div>
+<div id="closed"><div class="box"><h3 id="closedTitle"></h3><div id="closedText"></div></div></div>
 
 <script>
 'use strict';
@@ -513,6 +562,8 @@ let current = 0;          // index of the current spread
 let target = new Set();   // page numbers the layouts are made for
 let picked = null;        // name of the image frame clicked, to replace or crop its image
 let gesture = null;       // pointer pressed on a frame of the large view
+let pendingCrop = null;   // image frame zoomed or moved in the page, not yet saved in Scribus
+let cropTimer = null;
 let dropTarget = null;    // image frame under a dragged image
 let dirty = false;        // changes not saved
 let closeAfterSave = false;
@@ -537,11 +588,12 @@ const imageUrl = (path, mode) => '/image?token=' + token + '&mode=' + mode
   + '&path=' + encodeURIComponent(path);
 
 let toastTimer = null;
-function message(text, isError) {
+function message(text, isError, notice) {
   $('message').textContent = text || '';
   $('message').className = isError ? 'error' : '';
-  if (isError && text) {    // also at the top of the page, not to be missed
+  if ((isError || notice) && text) {    // also at the top of the page, not to be missed
     $('toast').textContent = text;
+    $('toast').className = isError ? '' : 'ok';
     $('toast').style.display = 'block';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { $('toast').style.display = 'none'; }, 10000);
@@ -626,7 +678,8 @@ function usedImages() {
   const used = {};
   if (!doc) return used;
   for (const p of doc.pages) for (const i of p.items) {
-    if (i.image) (used[i.image] = used[i.image] || []).push(p.page);
+    const path = i.source || i.image;    // the original of a rotated image
+    if (path) (used[path] = used[path] || []).push(p.page);
   }
   return used;
 }
@@ -678,13 +731,23 @@ function itemSvg(it, id, sw, opts) {
     s += `<clipPath id="c${id}"><rect ${r}/></clipPath><rect class="fr" ${r} stroke-width="${sw}"/>`;
     if (it.image && canPreview(it.image)) {
       const href = imageUrl(it.image, opts.large ? 'full' : 'auto'), c = it.crop;
-      s += c ? `<image href="${href}" x="${it.x + c[0]}" y="${it.y + c[1]}" width="${c[2]}" height="${c[3]}"`
-          + ` preserveAspectRatio="none" clip-path="url(#c${id})"/>`
+      const f = it.flip || [false, false], cx = c ? it.x + c[0] + c[2] / 2 : 0, cy = c ? it.y + c[1] + c[3] / 2 : 0;
+      const mirror = c && (f[0] || f[1])
+        ? ` transform="matrix(${f[0] ? -1 : 1} 0 0 ${f[1] ? -1 : 1} ${f[0] ? 2 * cx : 0} ${f[1] ? 2 * cy : 0})"` : '';
+      s += c ? `<g clip-path="url(#c${id})"><image href="${href}" x="${it.x + c[0]}" y="${it.y + c[1]}" width="${c[2]}"`
+          + ` height="${c[3]}" preserveAspectRatio="none"${mirror}/></g>`
         : `<image href="${href}" ${r} preserveAspectRatio="xMidYMid slice" clip-path="url(#c${id})"/>`;
     }
     if (opts.large && it.name && it.name === dropTarget) s += `<rect class="drop" ${r} stroke-width="${sw * 3}"/>`;
+    const dpi = opts.large && it.pixels && it.crop && it.crop[2] > 0 ? it.pixels[0] / (it.crop[2] / mm(25.4)) : 0;
+    if (dpi && dpi < 150) {    // the image has too few pixels for the size of its frame
+      const fs = Math.min(it.w, it.h) / 8, bw = fs * 3.2;
+      s += `<g class="lowres" pointer-events="none"><title>${esc(fmt('Low resolution: {} dpi in this frame (150 or more recommended).', Math.round(dpi)))}</title>`
+        + `<rect x="${it.x + it.w - bw - fs / 3}" y="${it.y + fs / 3}" width="${bw}" height="${fs * 1.4}" rx="${fs / 4}"/>`
+        + `<text x="${it.x + it.w - bw / 2 - fs / 3}" y="${it.y + fs * 1.35}" font-size="${fs}" text-anchor="middle">${esc(Math.round(dpi) + ' dpi')}</text></g>`;
+    }
   } else if (kind === 'text') {
-    s += `<rect class="tx" ${r} stroke-width="${sw}"/>`;
+    s += `<rect class="tx${it.styled ? ' styled' : ''}" ${r} stroke-width="${it.styled ? sw * 3 : sw}"/>`;
     if (it.text && it.fontsize) {
       s += `<foreignObject ${r}><div xmlns="http://www.w3.org/1999/xhtml" class="ftext${it.role === 'caption' ? ' caption' : ''}"`
         + ` style="font-size:${it.fontsize}px">${esc(it.text)}</div></foreignObject>`;
@@ -747,7 +810,7 @@ async function moveSpread(from, to) {
   order.splice(b, 0, moved);
   await run(async () => {
     const r = await api('/api/reorder', {order});
-    doc = r.document; dirty = true;
+    doc = r.document; markChanged();
     if (r.errors && r.errors.length) message(t('Errors:') + ' ' + r.errors.join('; '), true);
     selectSpread(to);
   });
@@ -756,12 +819,13 @@ async function moveSpread(from, to) {
 async function insertPages(after, index) {
   await run(async () => {
     doc = (await api('/api/insertpages', {after, count: 2})).document;
-    dirty = true;
+    markChanged();
     selectSpread(index);
   });
 }
 
 function selectSpread(i) {
+  flushCrop();
   current = Math.max(0, Math.min(i, spreads().length - 1));
   picked = null;
   // target: the empty pages of the double page, or all of them
@@ -810,6 +874,7 @@ function bindView() {
   view.querySelectorAll('.pagehit').forEach(r => r.onclick = () => toggleTarget(+r.dataset.page));
   view.onpointerdown = e => {
     const g = e.target.closest('.frame');
+    if (pendingCrop && (!g || g.dataset.name !== pendingCrop.name)) flushCrop();
     if (!g || e.button !== 0) return;
     gesture = {name: g.dataset.name, kind: g.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false};
     const it = itemByName(gesture.name);
@@ -830,12 +895,17 @@ function bindView() {
       const k = view.getScreenCTM().a, it = gesture.item, c = gesture.crop;
       it.crop = [clamp(c[0] + dx / k, it.w - c[2], 0), clamp(c[1] + dy / k, it.h - c[3], 0), c[2], c[3]];
       moveImage(it);
+      pendingCrop = it;
     } else if (gesture.kind === 'image' && gesture.name && itemByName(gesture.name).image) {
       gesture.mode = 'swap';
       const over = frameAt(e.clientX, e.clientY);
       view.style.cursor = 'grabbing';
       if (over !== dropTarget) { dropTarget = over !== gesture.name ? over : null; highlightDrop(); }
     }
+  };
+  // a drag interrupted (released outside, pointer lost): what was moved is saved
+  view.onpointercancel = view.onlostpointercapture = () => {
+    if (gesture && gesture.mode === 'pan' && gesture.moved) { gesture = null; flushCrop(); }
   };
   view.onpointerup = () => {
     const g = gesture;
@@ -915,12 +985,21 @@ function zoomTo(z) {
   const w = c[2] / st.zoom * z, h = c[3] / st.zoom * z;
   it.crop = [clamp(it.w / 2 - st.cx * w, it.w - w, 0), clamp(it.h / 2 - st.cy * h, it.h - h, 0), w, h];
   moveImage(it);
+  pendingCrop = it;
+  clearTimeout(cropTimer);
+  cropTimer = setTimeout(flushCrop, 800);    // saved after a pause, even without a 'change' event
+}
+function flushCrop() {
+  clearTimeout(cropTimer);
+  if (pendingCrop) commitCrop(pendingCrop);
 }
 async function commitCrop(it) {
+  clearTimeout(cropTimer);
+  if (pendingCrop === it) pendingCrop = null;
   const st = cropState(it);
   await run(async () => {
     doc = (await api('/api/crop', {frame: it.name, zoom: st.zoom, cx: st.cx, cy: st.cy})).document;
-    dirty = true;
+    markChanged();
     renderAll();
   });
 }
@@ -961,11 +1040,15 @@ async function addSticker(emoji) {
   const sp = currentSpread(), p = sp.find(p => target.has(p.page)) || sp[0];
   if (!p) return;
   const size = mm(40);
+  // in the middle of the page, shifted when other stickers are already there
+  let x = (p.width - size) / 2, y = (p.height - size) / 2;
+  while (p.items.some(i => i.role === 'sticker' && Math.abs(i.x - x) < 1 && Math.abs(i.y - y) < 1)) {
+    x += mm(8); y += mm(8);
+  }
   await run(async () => {
     const png = await emojiPng(emoji);
-    const r = await api('/api/sticker', {page: p.page, emoji, png,
-      x: (p.width - size) / 2, y: (p.height - size) / 2, size});
-    doc = r.document; dirty = true;
+    const r = await api('/api/sticker', {page: p.page, emoji, png, x, y, size});
+    doc = r.document; markChanged();
     picked = r.frame;
     $('stickerBar').classList.remove('on');
     renderAll();
@@ -989,7 +1072,7 @@ async function moveSticker(it, x, y, size) {
   await run(async () => {
     doc = (await api('/api/move', {frame: it.name, page: page.page,
       x: offset + x - pageLeft, y, w: size, h: size})).document;
-    dirty = true;
+    markChanged();
     renderAll();
   });
 }
@@ -1018,8 +1101,11 @@ function renderTextTools(reset) {
 // emojis are not printed in texts (Scribus has no color emoji fonts): stickers are
 const hasEmoji = text => /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]/u.test(text);
 function textWarning(overflow) {
+  const it = itemByName(textFrame);
   const text = overflow ? t('The text is too long for the frame: shorten it, or enlarge the frame in Scribus.')
-    : hasEmoji($('textEdit').value) ? t('Emojis are not printed in texts: use the Sticker button for color emojis.') : '';
+    : hasEmoji($('textEdit').value) ? t('Emojis are not printed in texts: use the Sticker button for color emojis.')
+    : it && it.styled ? t('This text was formatted in Scribus (fonts, sizes, colors…): changing it here puts it back in the default style, and that formatting is lost.')
+    : '';
   $('textInfo').textContent = text;
   $('textInfo').className = text ? 'warning' : 'muted';
 }
@@ -1044,7 +1130,7 @@ async function saveText() {
   textSaved = text;
   try {
     const r = await api('/api/text', {frame, text});
-    doc = r.document; dirty = true;
+    doc = r.document; markChanged();
     renderHeader(); renderSpreads();
     textWarning(r.overflow);
   } catch (e) { message(e.message, true); }
@@ -1052,7 +1138,7 @@ async function saveText() {
 async function swapImages(first, second) {
   await run(async () => {
     doc = (await api('/api/swap', {first, second})).document;
-    dirty = true; picked = null;
+    markChanged(); picked = null;
     message('');
     renderAll();
   });
@@ -1060,6 +1146,7 @@ async function swapImages(first, second) {
 
 function toggleTarget(page) {
   if (!page) return;
+  flushCrop();
   const sp = currentSpread();
   if (sp.length === 1) target = new Set([page]);
   else if (target.has(page) && target.size === 1) target = new Set(sp.map(p => p.page));
@@ -1235,9 +1322,14 @@ function appliedLayout(tp) {
 }
 
 // apply the current layout again, with the new options, keeping its images, crops and texts
-async function reapply() {
+async function reapply(confirmed) {
   const sp = currentSpread(), tp = sp.filter(p => target.has(p.page)), sig = appliedLayout(tp);
+  $('reapplyConfirm').style.display = 'none';
   if (!sig) return;
+  if (!confirmed && tp.some(p => p.items.some(i => i.styled))) {
+    $('reapplyConfirm').style.display = 'flex';
+    return;
+  }
   const items = tp.flatMap(p => p.items).sort((a, b) => a.slot - b.slot);
   const of = role => items.filter(i => i.role === role);    // stickers are not in the layout
   const images = of('image'), captions = of('caption'), texts = of('text');
@@ -1283,7 +1375,7 @@ function renderLayouts() {
 async function apply(tp, frames, layout) {
   await run(async () => {
     const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value, layout});
-    doc = r.document; dirty = true; picked = null;
+    doc = r.document; markChanged(); picked = null;
     message(r.errors.length ? t('Errors:') + ' ' + r.errors.join('; ') : t('Layout applied.'), r.errors.length > 0);
     renderAll();
   });
@@ -1303,7 +1395,7 @@ async function clearPages() {
   hideClearConfirm();
   await run(async () => {
     doc = (await api('/api/clear', {pages})).document;
-    dirty = true; picked = null;
+    markChanged(); picked = null;
     message('');
     renderAll();
   });
@@ -1311,35 +1403,125 @@ async function clearPages() {
 
 // ---------- images of the book
 
+let poolMode = 'all', poolView = 'grid', folded = new Set();
+const store = (key, value) => { try { localStorage.setItem('photobook.' + key, value); } catch (e) {} };
+const stored = key => { try { return localStorage.getItem('photobook.' + key); } catch (e) { return null; } };
+
+// the images of the book in groups: all, by folder or by day (when the picture was taken)
+function poolGroups() {
+  if (poolMode === 'folders') {
+    const groups = {};
+    for (const im of pool) {
+      const folder = im.path.replace(/[\\/][^\\/]*$/, '');
+      (groups[folder] = groups[folder] || []).push(im);
+    }
+    return Object.keys(groups).sort((a, b) => a.localeCompare(b)).map(folder => ({
+      key: folder, title: folder.split(/[\\/]/).slice(-2).join(' / '), tip: folder,
+      images: groups[folder].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}))}));
+  }
+  if (poolMode === 'days') {
+    const groups = {};
+    for (const im of pool) {
+      const day = im.date ? im.date.slice(0, 10) : '';
+      (groups[day] = groups[day] || []).push(im);
+    }
+    const locale = S.language === 'fr' ? 'fr-FR' : 'en-GB';
+    return Object.keys(groups).sort().map(day => ({
+      key: day,
+      title: day ? new Date(day + 'T12:00:00').toLocaleDateString(locale,
+        {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'}) : t('No date'),
+      tip: day,
+      images: groups[day].sort((a, b) => (a.date || '').localeCompare(b.date || ''))}));
+  }
+  return [{key: '', title: '', images: pool}];
+}
+
+// how large the image can be printed: its resolution if it covered a whole page
+function quality(im) {
+  if (!im.size) return null;
+  const p0 = doc && doc.pages[0];
+  const toInch = v => doc ? v / mm(25.4) : v / 25.4;    // page size in inches
+  const W = p0 ? toInch(p0.width) : 240 / 25.4, H = p0 ? toInch(p0.height) : 240 / 25.4;
+  const dpi = Math.round(Math.min(im.size[0] / W, im.size[1] / H));
+  const [cls, label] = dpi >= 240 ? ['', 'HD'] : dpi >= 120 ? ['ok', 'OK'] : ['low', t('Low')];
+  const tip = fmt('{} × {} pixels: {} dpi on a whole page.', im.size[0], im.size[1], dpi) + ' '
+    + (dpi >= 240 ? t('Good for a whole page.') : dpi >= 120 ? t('Good up to half a page.') : t('Only for small frames.'));
+  return {cls, label, tip, dpi};
+}
+function qualityHtml(im) {
+  const q = quality(im);
+  return q ? `<span class="q ${q.cls}" title="${esc(q.tip)}">${esc(q.label)}</span>` : '';
+}
+
 function renderPool() {
   const box = $('pool'), used = usedImages();
   box.innerHTML = '';
   $('poolCount').textContent = pool.length ? '(' + pool.length + ')' : '';
-  if (!pool.length) box.innerHTML = `<div class="muted" style="grid-column:1/-1">${esc(t('Add the images of your book from your drive.'))}</div>`;
-  pool.forEach((im, idx) => {
-    const n = chosen.indexOf(im.path);
-    const d = document.createElement('div');
-    d.className = 'item' + (n >= 0 ? ' chosen' : '') + (im.exists === false ? ' missing' : '');
-    const pages = used[im.path];
-    d.title = im.name + (im.size ? ` (${im.size[0]} × ${im.size[1]})` : '');
-    d.innerHTML = `<div class="img">${thumbHtml(im)}</div>`
-      + (n >= 0 ? `<span class="badge">${n + 1}</span>` : '')
-      + `<span class="name"></span>`
-      + (pages ? `<span class="used">${esc(fmt('p. {}', pages.join(', ')))}</span>` : '')
-      + `<span class="tools"><button class="see" title="${esc(t('Show large'))}">⤢</button>`
-      + `<button class="remove" title="${esc(t('Remove from the book'))}">×</button></span>`;
-    d.querySelector('.name').textContent = im.name;
-    d.onclick = () => toggleChosen(im.path);
-    d.ondblclick = () => showImage(pool, idx);
-    d.draggable = true;
-    d.ondragstart = e => { e.dataTransfer.setData('text/plain', im.path); e.dataTransfer.effectAllowed = 'copy'; };
-    d.querySelector('.see').onclick = e => { e.stopPropagation(); showImage(pool, idx); };
-    d.querySelector('.remove').onclick = e => { e.stopPropagation(); removeFromPool(im.path); };
-    box.appendChild(d);
-  });
+  ['All', 'Folders', 'Days'].forEach(m => $('mode' + m).classList.toggle('on', poolMode === m.toLowerCase()));
+  $('foldAll').style.display = $('unfoldAll').style.display = poolMode === 'all' ? 'none' : '';
+  if (!pool.length) box.innerHTML = `<div class="muted">${esc(t('Add the images of your book from your drive.'))}</div>`;
+  for (const group of poolGroups()) {
+    const g = document.createElement('div'), foldKey = poolMode + ':' + group.key;
+    g.className = 'group' + (poolMode !== 'all' && folded.has(foldKey) ? ' folded' : '');
+    if (poolMode !== 'all') {
+      const n = group.images.filter(im => chosen.includes(im.path)).length;
+      const head = document.createElement('div');
+      head.className = 'grouphead';
+      head.title = group.tip || '';
+      head.innerHTML = `<span class="fold">${folded.has(foldKey) ? '▸' : '▾'}</span><span class="gname"></span>`
+        + `<span class="muted">${n ? n + '/' : ''}${group.images.length}</span>`
+        + `<button title="${esc(t('Select these images for a layout'))}">${esc(t('Select'))}</button>`;
+      head.querySelector('.gname').textContent = group.title;
+      head.onclick = () => {
+        folded.has(foldKey) ? folded.delete(foldKey) : folded.add(foldKey);
+        store('folded', JSON.stringify([...folded]));
+        renderPool();
+      };
+      head.querySelector('button').onclick = e => {
+        e.stopPropagation();
+        const all = group.images.every(im => chosen.includes(im.path));
+        for (const im of group.images) {
+          const i = chosen.indexOf(im.path);
+          if (all && i >= 0) chosen.splice(i, 1);
+          if (!all && i < 0) chosen.push(im.path);
+        }
+        renderPool(); renderChosenBar(); renderLayouts();
+      };
+      g.appendChild(head);
+    }
+    const items = document.createElement('div');
+    items.className = 'groupitems ' + poolView;
+    for (const im of group.images) items.appendChild(poolItem(im, used));
+    g.appendChild(items);
+    box.appendChild(g);
+  }
   $('chosenInfo').textContent = chosen.length
     ? fmt('{} selected for the layout', chosen.length) : t('Click images to select them for a layout.');
   $('clearChosen').disabled = !chosen.length;
+}
+
+function poolItem(im, used) {
+  const idx = pool.indexOf(im), n = chosen.indexOf(im.path);
+  const d = document.createElement('div');
+  d.className = 'item' + (n >= 0 ? ' chosen' : '') + (im.exists === false ? ' missing' : '');
+  const pages = used[im.path];
+  d.title = im.name + (im.size ? ` (${im.size[0]} × ${im.size[1]})` : '')
+    + (im.date ? '\n' + im.date.replace('T', ' ') + (im.dateFrom === 'file' ? ' (' + t('date of the file') + ')' : '') : '');
+  d.innerHTML = `<div class="img">${thumbHtml(im)}</div>`
+    + (n >= 0 ? `<span class="badge">${n + 1}</span>` : '')
+    + `<span class="name"></span>`
+    + (pages ? `<span class="used">${esc(fmt('p. {}', pages.join(', ')))}</span>` : '')
+    + qualityHtml(im)
+    + `<span class="tools"><button class="see" title="${esc(t('Show large'))}">⤢</button>`
+    + `<button class="remove" title="${esc(t('Remove from the book'))}">×</button></span>`;
+  d.querySelector('.name').textContent = im.name;
+  d.onclick = () => toggleChosen(im.path);
+  d.ondblclick = () => showImage(pool, idx);
+  d.draggable = true;
+  d.ondragstart = e => { e.dataTransfer.setData('text/plain', im.path); e.dataTransfer.effectAllowed = 'copy'; };
+  d.querySelector('.see').onclick = e => { e.stopPropagation(); showImage(pool, idx); };
+  d.querySelector('.remove').onclick = e => { e.stopPropagation(); removeFromPool(im.path); };
+  return d;
 }
 
 const ROTATION = {3: 180, 4: 180, 5: 90, 6: 90, 7: -90, 8: -90};
@@ -1373,7 +1555,7 @@ async function replaceImage(path, frame) {
   frame = frame || picked;
   await run(async () => {
     doc = (await api('/api/setimage', {frame, image: path})).document;
-    dirty = true; picked = null;
+    markChanged(); picked = null;
     message('');
     renderAll();
   });
@@ -1399,10 +1581,16 @@ async function setPool(paths) {
 const removeFromPool = path => setPool(pool.map(p => p.path).filter(p => p !== path));
 
 function setPoolView(mode) {
-  $('pool').className = 'pool ' + mode;
+  poolView = mode;
   $('gridView').classList.toggle('on', mode === 'grid');
   $('listView').classList.toggle('on', mode === 'list');
-  try { localStorage.setItem('photobook.poolview', mode); } catch (e) {}
+  store('poolview', mode);
+  renderPool();
+}
+function setPoolMode(mode) {
+  poolMode = mode;
+  store('poolmode', mode);
+  renderPool();
 }
 
 // ---------- large image
@@ -1447,7 +1635,8 @@ function renderBrowser() {
     const isIn = inBook.has(im.path);
     b.className = 'file' + (checked.has(im.path) ? ' checked' : '') + (isIn ? ' inbook' : '');
     b.title = im.name + (isIn ? ' — ' + t('already in the book') : '');
-    b.innerHTML = `<div class="img">${thumbHtml(im)}</div><div class="name"></div><span class="check">✓</span>`;
+    b.innerHTML = `<div class="img">${thumbHtml(im)}</div><div class="name"></div><span class="check">✓</span>`
+      + qualityHtml(im);
     b.querySelector('.name').textContent = im.name;
     b.onclick = () => {
       if (isIn) return;
@@ -1614,7 +1803,7 @@ async function createBook() {
       margin: num('margin'), bleed: num('bleed')});
     doc = r.document;
     if (r.pool) pool = r.pool;
-    dirty = true;
+    markChanged();
     $('setup').classList.remove('open');
     selectSpread(0);
   });
@@ -1623,20 +1812,61 @@ async function createBook() {
 async function addPages(count) {
   await run(async () => {
     doc = (await api('/api/addpages', {count})).document;
-    dirty = true;
+    markChanged();
     selectSpread(spreads().length - 1);
   });
 }
 
 const isAbsolute = p => /^(\/|[A-Za-z]:[\\/])/.test(p || '');
+const fileName = p => (p || '').split(/[\\/]/).pop();
+let autosaveTimer = null, saving = false, savedAt = '';
+
+// a change: saved automatically after a moment if the book has a file (undo stays possible)
+function markChanged() {
+  dirty = true;
+  clearTimeout(autosaveTimer);
+  if (doc && isAbsolute(doc.name)) autosaveTimer = setTimeout(autosave, 1500);
+  renderSaveState();
+}
+async function autosave() {
+  if (!dirty || saving) return;
+  if (pendingCrop || textTimer) { autosaveTimer = setTimeout(autosave, 1000); return; }
+  saving = true; renderSaveState();
+  try {
+    const r = await api('/api/save', {path: null});
+    doc = r.document; dirty = false; savedAt = r.saved;
+  } catch (e) { message(e.message, true); }
+  saving = false;
+  renderHeader();
+}
+function renderSaveState() {
+  const el = $('saveState');
+  if (!doc) { el.textContent = ''; return; }
+  if (!isAbsolute(doc.name)) {
+    el.textContent = t('Not saved yet: choose a file with Save');
+    el.className = 'unsaved';
+  } else if (saving || dirty) {
+    el.textContent = t('Saving…'); el.className = '';
+  } else {
+    el.textContent = savedAt ? '✓ ' + fmt('Saved at {}', savedAt.slice(0, 5)) : '✓ ' + t('Saved');
+    el.className = 'saved';
+  }
+}
+
 async function save(path) {
+  if (pendingCrop) await commitCrop(pendingCrop);
+  if (textTimer) await saveText();
+  clearTimeout(autosaveTimer);
+  saving = true; renderSaveState();
   await run(async () => {
-    doc = (await api('/api/save', {path})).document;
+    const r = await api('/api/save', {path});
+    doc = r.document; savedAt = r.saved;
     dirty = false;
-    renderHeader();
-    message(fmt('Saved in {}', doc.name));
-    if (closeAfterSave) quit();
+    message(fmt('The book is saved in {}', fileName(doc.name)), false, true);
+    if (closeAfterSave) quit(true);
   });
+  saving = false;
+  renderHeader();
 }
 function askSave() {
   if (isAbsolute(doc.name)) return save(null);
@@ -1646,13 +1876,21 @@ function askSave() {
   $('savePath').focus();
 }
 
-async function quit() {
-  await api('/api/quit').catch(() => {});
+// give Scribus back: the undo layer is emptied, and the book saved if it has a file
+async function quit(saveBook) {
+  $('closedTitle').textContent = t('Closing…');
+  $('closedText').textContent = t('The book is being saved and Scribus is given back. Please wait.');
   $('closed').style.display = 'flex';
+  let r = {};
+  try { r = await api('/api/quit', {save: saveBook}); } catch (e) {}
+  $('closedTitle').textContent = t('Closed');
+  $('closedText').textContent = (r.saved ? t('The book is saved.') + ' ' : '')
+    + t('You can close this tab and go back to Scribus. Scribus may take a few seconds to redraw the pages.');
   window.close();
 }
 
 function renderHeader() {
+  renderSaveState();
   $('docName').textContent = doc ? doc.name : '';
   $('saveButton').disabled = !doc;
   $('undoButton').disabled = !(doc && doc.undo);
@@ -1660,10 +1898,11 @@ function renderHeader() {
 }
 
 async function undo() {
+  if (pendingCrop) { flushCrop(); return; }    // the crop is saved: it can be undone next
   if (!doc || !doc.undo) return;
   await run(async () => {
-    doc = (await api('/api/undo')).document;
-    picked = null;
+    doc = (await api('/api/undo')).document;    // the frame stays selected if it still exists
+    markChanged();
     message('');
     renderAll();
   });
@@ -1704,9 +1943,20 @@ async function start() {
   loadParams(S.params);
   pattern = grid(parseInt(S.params.cols) || 2, parseInt(S.params.rows) || 2);
   $('cols').value = pattern.cols; $('rows').value = pattern.rows;
-  let view = 'grid';
-  try { view = localStorage.getItem('photobook.poolview') || 'grid'; } catch (e) {}
-  setPoolView(view);
+  poolMode = stored('poolmode') || 'all';
+  try { folded = new Set(JSON.parse(stored('folded') || '[]')); } catch (e) {}
+  setPoolView(stored('poolview') || 'grid');
+  $('modeAll').onclick = () => setPoolMode('all');
+  $('modeFolders').onclick = () => setPoolMode('folders');
+  $('modeDays').onclick = () => setPoolMode('days');
+  $('foldAll').onclick = () => {
+    for (const g of poolGroups()) folded.add(poolMode + ':' + g.key);
+    store('folded', JSON.stringify([...folded])); renderPool();
+  };
+  $('unfoldAll').onclick = () => {
+    for (const g of poolGroups()) folded.delete(poolMode + ':' + g.key);
+    store('folded', JSON.stringify([...folded])); renderPool();
+  };
   updateGapInfo();
 
   $('gridView').onclick = () => setPoolView('grid');
@@ -1740,8 +1990,10 @@ async function start() {
   for (const id of ['spacing', 'captions', 'textblock', 'captionh', 'textsize', 'scale', 'aspectwidth',
     'aspectheight', 'alignh', 'alignv', 'border']) {
     $(id).addEventListener('input', () => { updateGapInfo(); if (doc) renderLayouts(); });
-    $(id).addEventListener('change', () => { if (doc) reapply(); });    // the current layout follows
+    $(id).addEventListener('change', () => { flushCrop(); if (doc) reapply(); });    // the current layout follows
   }
+  $('reapplyYes').onclick = () => reapply(true);
+  $('reapplyNo').onclick = () => { $('reapplyConfirm').style.display = 'none'; };
   $('stickerButton').onclick = () => $('stickerBar').classList.toggle('on');
   EMOJIS.forEach(emoji => {
     const b = document.createElement('button');
@@ -1775,7 +2027,7 @@ async function start() {
   };
   $('stickerDelete').onclick = () => run(async () => {
     doc = (await api('/api/delete', {frame: picked})).document;
-    dirty = true; picked = null;
+    markChanged(); picked = null;
     renderAll();
   });
   $('textEdit').oninput = textChanged;
@@ -1786,10 +2038,18 @@ async function start() {
   };
   $('undoButton').onclick = undo;
   $('zoom').oninput = () => zoomTo($('zoom').value / 100);
-  $('zoom').onchange = () => { const it = itemByName(picked); if (it && it.crop) commitCrop(it); };
+  $('zoom').onchange = flushCrop;
+  const imageAction = (path, body) => run(async () => {
+    doc = (await api(path, Object.assign({frame: picked}, body))).document;
+    markChanged(); renderAll();
+  });
+  $('rotateLeft').onclick = () => imageAction('/api/rotate', {degrees: -90});
+  $('rotateRight').onclick = () => imageAction('/api/rotate', {degrees: 90});
+  $('mirrorH').onclick = () => imageAction('/api/mirror', {horizontal: true});
+  $('mirrorV').onclick = () => imageAction('/api/mirror', {horizontal: false});
   $('cropReset').onclick = () => run(async () => {
     doc = (await api('/api/crop', {frame: picked, zoom: 1, cx: 0.5, cy: 0.5})).document;
-    dirty = true; renderAll();
+    markChanged(); renderAll();
   });
   $('clearPages').onclick = showClearConfirm;
   $('clearNo').onclick = hideClearConfirm;
@@ -1801,9 +2061,15 @@ async function start() {
   $('saveCancel').onclick = () => { closeAfterSave = false; $('saveDialog').classList.remove('open'); };
   $('saveOk').onclick = () => { $('saveDialog').classList.remove('open'); save($('savePath').value); };
   $('savePath').onkeydown = e => { if (e.key === 'Enter') $('saveOk').click(); };
-  $('closeButton').onclick = () => dirty && doc ? $('closeDialog').classList.add('open') : quit();
+  $('closeButton').onclick = async () => {
+    if (pendingCrop) await commitCrop(pendingCrop);
+    if (textTimer) await saveText();
+    // a book without a file cannot be saved automatically: ask
+    if (doc && dirty && !isAbsolute(doc.name)) $('closeDialog').classList.add('open');
+    else quit(true);
+  };
   $('closeCancel').onclick = () => $('closeDialog').classList.remove('open');
-  $('closeAnyway').onclick = quit;
+  $('closeAnyway').onclick = () => { $('closeDialog').classList.remove('open'); quit(false); };
   $('closeSave').onclick = () => {
     $('closeDialog').classList.remove('open');
     closeAfterSave = true;

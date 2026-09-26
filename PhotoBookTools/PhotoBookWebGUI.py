@@ -70,6 +70,9 @@ SIZE_ATTRIBUTE = 'PhotoBookImageSize'    # size of the image at scale 1, in poin
 LAYOUT_ATTRIBUTE = 'PhotoBookLayout'    # layout of the page the item was created with
 ROLE_ATTRIBUTE = 'PhotoBookRole'    # image, caption or text
 SLOT_ATTRIBUTE = 'PhotoBookSlot'    # order of the item in its layout
+FORMAT_ATTRIBUTE = 'PhotoBookTextFormat'    # font, size, color, style of a text written by the page
+SOURCE_ATTRIBUTE = 'PhotoBookSource'    # image file before rotation
+ROTATION_ATTRIBUTE = 'PhotoBookRotation'    # rotation of the image, in degrees clockwise
 UNDO_STEPS = 30
 
 ##################################################
@@ -113,13 +116,25 @@ def readExif(tiff, base, info):
     endian = '<' if tiff[:2] == b'II' else '>'
     u16 = lambda o: struct.unpack(endian + 'H', tiff[o:o + 2])[0]
     u32 = lambda o: struct.unpack(endian + 'I', tiff[o:o + 4])[0]
+    def ascii(entry):
+        count = u32(entry + 4)
+        offset = u32(entry + 8) if count > 4 else entry + 8
+        return tiff[offset:offset + count].rstrip(b'\0').decode('ascii', 'replace')
     ifd = u32(4)
     count = u16(ifd)
     resolution, unit = None, 2
     for i in range(count):
         entry = ifd + 2 + 12 * i
         tag = u16(entry)
-        if tag == 0x0112:
+        if tag == 0x0132 and 'date' not in info:    # DateTime (of the file)
+            info['date'] = ascii(entry)
+        elif tag == 0x8769:    # Exif IFD: DateTimeOriginal, when the picture was taken
+            exif = u32(entry + 8)
+            for j in range(u16(exif)):
+                e = exif + 2 + 12 * j
+                if u16(e) == 0x9003:
+                    info['date'] = ascii(e)
+        elif tag == 0x0112:
             info['orientation'] = u16(entry + 8)
         elif tag == 0x011a:    # XResolution, a rational
             offset = u32(entry + 8)
@@ -142,8 +157,8 @@ def readExif(tiff, base, info):
             info['thumbnail'] = (base + offset, length)
 
 def readImageInfo(path):
-    """ dict with 'size' (width, height as displayed), 'orientation', 'dpi'
-        and 'thumbnail' (offset, length) when found."""
+    """ dict with 'size' (width, height as displayed), 'orientation', 'dpi',
+        'date' (when the picture was taken, ISO) and 'thumbnail' (offset, length) when found."""
     info = {}
     try:
         with open(path, 'rb') as f:
@@ -187,6 +202,11 @@ def readImageInfo(path):
                     f.seek(start + length - 2)
     except (OSError, struct.error, IndexError):
         pass
+    date = info.get('date', '')    # 'YYYY:MM:DD HH:MM:SS' to ISO
+    if len(date) >= 19 and date[:4].isdigit() and date[:4] != '0000':
+        info['date'] = date[:10].replace(':', '-') + 'T' + date[11:19]
+    elif 'date' in info:
+        del info['date']
     if 'size' in info and info.get('orientation', 1) >= 5:    # rotated 90°
         info['size'] = (info['size'][1], info['size'][0])
     return info
@@ -238,6 +258,74 @@ def cachedPreview(path, size):
     return out
 
 ##################################################
+# rotated images: a copy with another EXIF orientation for JPEG (no recompression,
+# Scribus follows the EXIF orientation), a rotated copy made by the converter otherwise
+
+# EXIF orientation -> matrix giving the displayed image from the stored one
+ORIENTATIONS = {1: (1, 0, 0, 1), 2: (-1, 0, 0, 1), 3: (-1, 0, 0, -1), 4: (1, 0, 0, -1),
+    5: (0, 1, 1, 0), 6: (0, -1, 1, 0), 7: (0, -1, -1, 0), 8: (0, 1, -1, 0)}
+
+def rotateOrientation(orientation, degrees):
+    """ EXIF orientation of the image turned by 'degrees' clockwise (a multiple of 90)."""
+    a, b, c, d = ORIENTATIONS.get(orientation, ORIENTATIONS[1])
+    for i in range(degrees // 90 % 4):    # clockwise quarter turn: (0, -1, 1, 0) x matrix
+        a, b, c, d = -c, -d, a, b
+    return next(o for o, m in ORIENTATIONS.items() if m == (a, b, c, d))
+
+def withOrientation(data, orientation):
+    """ JPEG bytes with this EXIF orientation: the tag is changed where it is, or a small
+        EXIF block with it is put first."""
+    pos = 2
+    while pos + 4 <= len(data) and data[pos] == 0xff:
+        marker, length = data[pos + 1], struct.unpack('>H', data[pos + 2:pos + 4])[0]
+        if marker == 0xda:
+            break
+        if marker == 0xe1 and data[pos + 4:pos + 10] == b'Exif\0\0':
+            base = pos + 10
+            endian = '<' if data[base:base + 2] == b'II' else '>'
+            ifd = base + struct.unpack(endian + 'I', data[base + 4:base + 8])[0]
+            for i in range(struct.unpack(endian + 'H', data[ifd:ifd + 2])[0]):
+                entry = ifd + 2 + 12 * i
+                if struct.unpack(endian + 'H', data[entry:entry + 2])[0] == 0x0112:
+                    return data[:entry + 8] + struct.pack(endian + 'H', orientation) + data[entry + 10:]
+            break
+        pos += 2 + length
+    tiff = b'II*\0' + struct.pack('<I', 8) + struct.pack('<H', 1) \
+        + struct.pack('<HHIHH', 0x0112, 3, 1, orientation, 0) + struct.pack('<I', 0)
+    app1 = b'Exif\0\0' + tiff
+    return data[:2] + b'\xff\xe1' + struct.pack('>H', len(app1) + 2) + app1 + data[2:]
+
+def rotatedCopy(source, degrees):
+    """ The image turned by 'degrees' clockwise, in a 'PhotoBook rotated' folder next to it."""
+    degrees %= 360
+    if not degrees:
+        return source
+    folder = os.path.join(os.path.dirname(source), 'PhotoBook rotated')
+    stem, ext = os.path.splitext(os.path.basename(source))
+    jpeg = ext.lower() in ('.jpg', '.jpeg')
+    out = os.path.join(folder, '%s-%d%s' % (stem, degrees, ext if jpeg else '.png'))
+    if os.path.isfile(out) and os.path.getmtime(out) >= os.path.getmtime(source):
+        return out
+    os.makedirs(folder, exist_ok=True)
+    if jpeg:
+        with open(source, 'rb') as f:
+            data = f.read()
+        orientation = readImageInfo(source).get('orientation', 1)
+        with open(out, 'wb') as f:
+            f.write(withOrientation(data, rotateOrientation(orientation, degrees)))
+        return out
+    if CONVERTER == 'sips':
+        subprocess.run(['sips', '-s', 'format', 'png', '-r', str(degrees), source, '--out', out],
+            capture_output=True, timeout=120)
+    elif CONVERTER == 'pil':
+        from PIL import Image, ImageOps
+        with Image.open(source) as image:
+            ImageOps.exif_transpose(image).rotate(-degrees, expand=True).save(out)
+    if not os.path.isfile(out):
+        raise ValueError(tr('This image cannot be rotated: no converter (sips or Pillow) found.'))
+    return out
+
+##################################################
 class ScPhotoBookWebGUI:
     """ PhotoBookWebGUI itself: the actions of the web page on the document.
         Items removed by an action go to a hidden layer so that it can be undone;
@@ -251,6 +339,9 @@ class ScPhotoBookWebGUI:
         self.undoSteps = []            # [{'label', 'undo': [functions], 'trash': [items]}]
         self.step = None
         self.sizes = {}                # image file -> size in points, estimated from the file
+        self.pixels = {}               # image file -> size in pixels
+        self.styled = {}               # text frame -> (text, formatted in Scribus)
+        self.changed = False           # changes not saved
 
     # --- undo
 
@@ -265,6 +356,7 @@ class ScPhotoBookWebGUI:
                 while len(self.undoSteps) > UNDO_STEPS:
                     self.purge(self.undoSteps.pop(0)['trash'])
             self.step = None
+            self.changed = True
             docChanged(1)
             redrawAll()
         if result.get('document'):    # computed before this step was recorded
@@ -396,9 +488,18 @@ class ScPhotoBookWebGUI:
                     item['image'] = getImageFile(name)
                     if item['image']:
                         item['crop'] = self.imageRect(name)
+                        item['flip'] = [bool(getProperty(name, 'imageFlippedH')),
+                            bool(getProperty(name, 'imageFlippedV'))]
+                        item['source'] = attributes.get(SOURCE_ATTRIBUTE) or item['image']
+                        item['rotation'] = int(attributes.get(ROTATION_ATTRIBUTE) or 0)
+                        if item['image'] not in self.pixels:
+                            self.pixels[item['image']] = readImageInfo(item['image']).get('size')
+                        item['pixels'] = self.pixels[item['image']]
                 elif objectType == 'TextFrame':
+                    selectText(0, 0, name)    # getAllText gives only the selected text, if any
                     item['text'] = getAllText(name).replace('\r', '\n')
                     item['fontsize'] = getFontSize(name) / POINTS_PER_UNIT[getUnit()]
+                    item['styled'] = self.isStyled(name, item['text'], attributes.get(FORMAT_ATTRIBUTE))
                 items.append(item)
             try:
                 side = getPageType(page)
@@ -476,13 +577,29 @@ class ScPhotoBookWebGUI:
         return {'document': self.document()}
 
     def save(self, path):
-        self.emptyTrash()    # the removed items are not saved
+        """ Save the book. The removed items stay in the hidden, non printable undo layer
+            until the page is closed, so that undo still works."""
         if path:
             saveDocAs(path)
         else:
             saveDoc()
         self.writePool()
-        return {'document': self.document()}
+        self.changed = False
+        return {'document': self.document(), 'saved': time.strftime('%H:%M:%S')}
+
+    def finish(self, save):
+        """ The page is closed: empty the undo layer, and save the book if it has a file."""
+        if not haveDoc():
+            return {'saved': False}
+        trash = TRASH_LAYER in getLayers()
+        self.emptyTrash()
+        saved = False
+        if save and os.path.isabs(getDocName()) and (self.changed or trash):
+            saveDoc()
+            self.writePool()
+            saved = True
+        self.changed = False
+        return {'saved': saved}
 
     # --- layout
 
@@ -551,12 +668,41 @@ class ScPhotoBookWebGUI:
             'Parameter': '', 'Relationship': 'none', 'RelationshipTo': '', 'AutoAddTo': 'none'})
         setObjectAttributes(attributes, frame)
 
+    def charFormats(self, frame):
+        """ The different (font, size, color, paragraph style) of the characters."""
+        formats = set()
+        for i in range(min(getTextLength(frame), 5000)):
+            selectText(i, 1, frame)
+            formats.add((getFont(frame), round(getFontSize(frame), 2), getTextColor(frame), getParagraphStyle(frame)))
+        selectText(0, 0, frame)    # else getAllText gives only the selected text
+        deselectAll()
+        return formats
+
+    def isStyled(self, frame, text, reference):
+        """ True if the text was formatted in Scribus: not all in the format given by the page
+            (the same font, size, color and paragraph style everywhere)."""
+        cached = self.styled.get(frame)
+        if cached and cached[0] == text:
+            return cached[1]
+        formats = self.charFormats(frame) if text else set()
+        styled = len(formats) > 1
+        if not styled and formats and reference:
+            styled = list(formats.pop()) != json.loads(reference)
+        self.styled[frame] = (text, styled)
+        return styled
+
     def writeText(self, frame, text):
-        """ Replace the text, keeping the paragraph style."""
+        """ Replace the text: all of it in the paragraph style of the frame
+            (PhotoBookText or PhotoBookCaption for the frames of the page)."""
         style = getParagraphStyle(frame)
         setText(text, frame)
         if style:
             setParagraphStyle(style, frame)
+        if text:    # the format given by the page, to know later if it was changed in Scribus
+            formats = self.charFormats(frame)
+            if len(formats) == 1:
+                self.setAttribute(frame, FORMAT_ATTRIBUTE, json.dumps(list(formats.pop())))
+        self.styled[frame] = (text.replace('\r', '\n'), False)
 
     def setCrop(self, frame, zoom, cx, cy):
         """ Scale the image to fill the frame, zoomed, with the point (cx, cy) of the
@@ -709,6 +855,23 @@ class ScPhotoBookWebGUI:
         self.trash(frame, self.itemPage(frame))
         return {'document': self.document()}
 
+    def rotate(self, frame, degrees):
+        """ Turn the image of the frame by a quarter turn (90 or -90)."""
+        attributes = {a.get('Name'): a.get('Value') for a in getObjectAttributes(frame)}
+        source = attributes.get(SOURCE_ATTRIBUTE) or getImageFile(frame)
+        rotation = (int(attributes.get(ROTATION_ATTRIBUTE) or 0) + degrees) % 360
+        self.snapshot(frame)
+        self.placeImage(frame, rotatedCopy(source, rotation))
+        self.setAttribute(frame, SOURCE_ATTRIBUTE, source)
+        self.setAttribute(frame, ROTATION_ATTRIBUTE, str(rotation))
+        return {'document': self.document()}
+
+    def mirror(self, frame, horizontal):
+        prop = 'imageFlippedH' if horizontal else 'imageFlippedV'
+        self.snapshot(frame)
+        setProperty(frame, prop, not getProperty(frame, prop))
+        return {'document': self.document()}
+
     def editText(self, frame, text):
         self.snapshot(frame)
         self.writeText(frame, text)
@@ -797,7 +960,12 @@ class ScPhotoBookWebGUI:
     def imageInfo(self, path):
         info = readImageInfo(path)
         lower = path.lower()
+        date, dateFrom = info.get('date'), 'exif'
+        if not date and os.path.isfile(path):    # no EXIF date: the date of the file
+            date = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(os.path.getmtime(path)))
+            dateFrom = 'file'
         return {'name': os.path.basename(path), 'path': path, 'size': info.get('size'),
+            'date': date, 'dateFrom': dateFrom,
             'orientation': info.get('orientation', 1), 'thumb': 'thumbnail' in info,
             'preview': lower.endswith(BROWSER_EXTENSIONS) or bool(CONVERTER),
             'exists': os.path.isfile(path)}
@@ -823,6 +991,7 @@ class ScPhotoBookWebGUI:
             'pool': self.poolInfo(),
             'folder': folder,
             'converter': bool(CONVERTER),
+            'language': 'fr' if TRANSLATION else 'en',
         }
 
     # --- image files
@@ -944,9 +1113,10 @@ class WebApp:
         if path == '/api/closed':    # tab closed or reloaded
             self.closedAt = time.time()
             return {}
-        if path == '/api/quit':
+        if path == '/api/quit':    # save and clean before Scribus is given back
+            result = maker.finish(body.get('save', True))
             self.finished = True
-            return {}
+            return result
         if path == '/api/newdocument':
             return maker.newDocument(body['width'], body['height'], body['margin'], body['bleed'])
         if path == '/api/addpages':
@@ -968,6 +1138,10 @@ class WebApp:
                 body['x'], body['y'], body['w'], body['h'])
         if path == '/api/delete':
             return maker.action('Delete', maker.deleteItem, body['frame'])
+        if path == '/api/rotate':
+            return maker.action('Rotation', maker.rotate, body['frame'], body['degrees'])
+        if path == '/api/mirror':
+            return maker.action('Mirror', maker.mirror, body['frame'], body['horizontal'])
         if path == '/api/text':
             return maker.action('Text', maker.editText, body['frame'], body['text'])
         if path == '/api/setimage':
@@ -1013,7 +1187,7 @@ def main():
         scribus.statusMessage(tr('Running script...'))
         WebApp(maker).run()
     finally:
-        maker.emptyTrash()
+        maker.finish(True)    # tab closed without 'Close': saved if the book has a file
         if scribus.haveDoc():
             scribus.setRedraw(True)
             scribus.redrawAll()
