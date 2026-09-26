@@ -730,7 +730,7 @@ function itemSvg(it, id, sw, opts) {
   } else if (kind === 'image') {
     s += `<clipPath id="c${id}"><rect ${r}/></clipPath><rect class="fr" ${r} stroke-width="${sw}"/>`;
     if (it.image && canPreview(it.image)) {
-      const href = imageUrl(it.image, opts.large ? 'full' : 'auto'), c = it.crop;
+      const href = imageUrl(it.image, opts.large ? 'view' : 'auto'), c = it.crop;    // smaller copies: faster
       const f = it.flip || [false, false], cx = c ? it.x + c[0] + c[2] / 2 : 0, cy = c ? it.y + c[1] + c[3] / 2 : 0;
       const mirror = c && (f[0] || f[1])
         ? ` transform="matrix(${f[0] ? -1 : 1} 0 0 ${f[1] ? -1 : 1} ${f[0] ? 2 * cx : 0} ${f[1] ? 2 * cy : 0})"` : '';

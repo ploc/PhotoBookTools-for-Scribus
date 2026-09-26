@@ -24,7 +24,7 @@ Scribus does not respond to clicks while the page is open.
 ##################################################
 # imports
 import sys, platform, os, json, time, secrets, struct, mimetypes, webbrowser
-import shutil, subprocess, tempfile, hashlib, base64
+import shutil, subprocess, tempfile, hashlib, base64, socket, threading
 from configparser import ConfigParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -62,6 +62,8 @@ IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.tif', '.tiff', '.gif', '.bmp', '.
     '.heic', '.heif')
 BROWSER_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
 CONVERT_EXTENSIONS = ('.heic', '.heif')    # converted to JPEG, Scribus cannot load them
+# size in pixels of the images shown in the page, smaller than the photos: faster
+PREVIEW_SIZES = {'thumb': 400, 'auto': 400, 'view': 1200, 'full': 2000}
 UNIT_NAMES = ['pt', 'mm', 'in', 'p', 'cm', 'c']
 POINTS_PER_UNIT = [1.0, 72 / 25.4, 72.0, 12.0, 72 / 2.54, 12.7878]
 ITEM_PREFIX = 'PhotoBook'    # items created by this script, replaced by a new layout
@@ -245,6 +247,8 @@ def convertImage(path, out, size=None):
         pass
     return False
 
+CONVERSIONS = threading.Semaphore(4)
+
 def cachedPreview(path, size):
     """ JPEG preview of an image for the browser, kept in a temporary folder."""
     if not CONVERTER:
@@ -253,8 +257,11 @@ def cachedPreview(path, size):
     out = os.path.join(CACHE_DIR, key + '.jpg')
     if not os.path.isfile(out):
         os.makedirs(CACHE_DIR, exist_ok=True)
-        if not convertImage(path, out, size):
-            return None
+        with CONVERSIONS:
+            part = out + '.%d.part.jpg' % threading.get_ident()
+            if not convertImage(path, part, size):
+                return None
+            os.replace(part, out)    # complete files only, for the other threads
     return out
 
 ##################################################
@@ -1012,24 +1019,32 @@ class ScPhotoBookWebGUI:
             'dirs': dirs, 'images': images}
 
     def thumbnail(self, path, mode):
-        """ (content type, bytes) to show the image in the browser.
+        """ (content type, bytes) to show the image in the browser, in a smaller size:
             mode 'thumb': the EXIF thumbnail if any, not rotated (the page rotates it),
-            'auto': the EXIF thumbnail if it needs no rotation, 'full': the image."""
+            'auto': the EXIF thumbnail if it needs no rotation, 'view' for the page view,
+            'full' to see the image large. Called in threads: no Scribus function here."""
         if not os.path.isfile(path) or not path.lower().endswith(IMAGE_EXTENSIONS):
             return None
-        if not path.lower().endswith(BROWSER_EXTENSIONS):
-            path = cachedPreview(path, 1600 if mode == 'full' else 400)
-            if not path:
+        lower = path.lower()
+        jpeg = lower.endswith(('.jpg', '.jpeg'))
+        info = readImageInfo(path) if jpeg or lower.endswith('.png') else {}
+        size = PREVIEW_SIZES.get(mode, 400)
+        if jpeg and mode in ('thumb', 'auto') and 'thumbnail' in info \
+                and (mode == 'thumb' or info.get('orientation', 1) == 1):
+            offset, length = info['thumbnail']
+            with open(path, 'rb') as f:
+                f.seek(offset)
+                data = f.read(length)
+            if data[:2] == b'\xff\xd8':
+                return 'image/jpeg', data
+        if not lower.endswith(BROWSER_EXTENSIONS) or (not lower.endswith(('.png', '.gif'))
+                and max(info.get('size') or (size + 1, 0)) > size):
+            # a smaller copy (PNG and GIF, as the stickers, keep their transparency)
+            preview = cachedPreview(path, size)
+            if preview:
+                path = preview
+            elif not lower.endswith(BROWSER_EXTENSIONS):
                 return None
-        elif mode != 'full':
-            info = readImageInfo(path)
-            if 'thumbnail' in info and (mode == 'thumb' or info.get('orientation', 1) == 1):
-                offset, length = info['thumbnail']
-                with open(path, 'rb') as f:
-                    f.seek(offset)
-                    data = f.read(length)
-                if data[:2] == b'\xff\xd8':
-                    return 'image/jpeg', data
         with open(path, 'rb') as f:
             return mimetypes.guess_type(path)[0] or 'application/octet-stream', f.read()
 
@@ -1038,7 +1053,26 @@ class ScPhotoBookWebGUI:
 # thread, so the handlers can call the Scribus API
 
 class Server(HTTPServer):
+    """ Requests of images are served in threads, so that the page shows them quickly
+        and the other requests do not wait for them; the other requests, which use
+        Scribus, are handled one at a time in Scribus's main thread."""
     request_queue_size = 64    # the page loads many thumbnails at once
+
+    def process_request(self, request, client_address):
+        try:
+            image = request.recv(16, socket.MSG_PEEK).startswith(b'GET /image')
+        except OSError:
+            image = False
+        if not image:
+            return HTTPServer.process_request(self, request, client_address)
+        def serve():
+            try:
+                self.finish_request(request, client_address)
+            except Exception:
+                self.handle_error(request, client_address)
+            finally:
+                self.shutdown_request(request)
+        threading.Thread(target=serve, daemon=True).start()
 
 class WebApp:
     """ Serve the page and route its requests to ScPhotoBookWebGUI."""
@@ -1065,11 +1099,12 @@ class WebApp:
         self.server.timeout = 0.5
         self.url = 'http://127.0.0.1:{}/?token={}'.format(self.server.server_port, self.token)
 
-    def send(self, request, status, contentType, data):
+    def send(self, request, status, contentType, data, cache=False):
         request.send_response(status)
         request.send_header('Content-Type', contentType)
         request.send_header('Content-Length', str(len(data)))
-        request.send_header('Cache-Control', 'no-store')
+        # images are kept by the browser (a changed image has another file name)
+        request.send_header('Cache-Control', 'private, max-age=86400' if cache else 'no-store')
         request.end_headers()
         request.wfile.write(data)
 
@@ -1092,7 +1127,7 @@ class WebApp:
                 result = self.maker.thumbnail(query.get('path', ''), query.get('mode', 'full'))
                 if result is None:
                     return self.send(request, 404, 'text/plain', b'Not found')
-                return self.send(request, 200, *result)
+                return self.send(request, 200, *result, cache=True)
             result = self.route(url.path, body)
             if result is None:
                 return self.send(request, 404, 'text/plain', b'Not found')
