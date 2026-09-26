@@ -191,6 +191,7 @@ FRENCH = {
         'avec ces options.',
     'Layouts for the {} photos of this page': 'Mises en page pour les {} photos de cette page',
     'Show': 'Afficher',
+    'Move the frame': 'Déplacer le cadre',
     '{} caption': '{} légende',
     '{} captions': '{} légendes',
     '{} text block': '{} bloc de texte',

@@ -223,6 +223,9 @@ svg .lowres text { fill: #fff; font-weight: 700; }
 svg .handle { fill: var(--accent); stroke: #fff; }
 svg .handle.top, svg .handle.bottom { cursor: ns-resize; }
 svg .handle.left, svg .handle.right { cursor: ew-resize; }
+svg .movehandle { cursor: move; }
+svg .movehandle circle { fill: var(--accent); stroke: #fff; }
+svg .movehandle text { fill: #fff; font-weight: 700; pointer-events: none; }
 
 /* svg pages */
 svg .pg { fill: var(--page); }
@@ -577,6 +580,7 @@ let strings = {};
 let doc = null;           // {name, unit, pages}
 let pool = [];            // images of the book
 let chosen = [];          // paths of the images selected for a layout, in order
+let autoChosen = false;   // chosen are the photos of the page being edited, not a choice
 let current = 0;          // index of the current spread
 let target = new Set();   // page numbers the layouts are made for
 let picked = null;        // name of the image frame clicked, to replace or crop its image
@@ -726,10 +730,13 @@ function pagesSvg(pages, opts) {
   });
   // items after the pages: an image over both pages is not hidden by the right page
   ox = 0;
+  let handles = '';
   pages.forEach((p, pi) => {
     s += `<g transform="translate(${ox},0)">`;
     const items = opts.frames ? opts.frames.filter(f => f.page === p.page) : p.items;
     items.forEach((it, i) => { s += itemSvg(it, `${id}${pi}_${i}`, sw, opts); });
+    const pick = opts.large && picked && items.find(it => it.name === picked);
+    if (pick) handles = `<g transform="translate(${ox},0)">${handlesSvg(pick, sw)}</g>`;
     if (opts.large && target.has(p.page)) {
       s += `<rect class="target" x="${sw}" y="${sw}" width="${p.width - sw * 2}"`
         + ` height="${p.height - sw * 2}" stroke-width="${sw * 2}" pointer-events="none"/>`;
@@ -737,7 +744,7 @@ function pagesSvg(pages, opts) {
     s += '</g>';
     ox += p.width;
   });
-  return s + '</svg>';
+  return s + handles + '</svg>';
 }
 
 function itemSvg(it, id, sw, opts) {
@@ -777,15 +784,27 @@ function itemSvg(it, id, sw, opts) {
   }
   if (opts.large && it.name && it.name === picked) {
     s += `<rect class="pick" ${r} stroke-width="${sw * 5}" pointer-events="none"/>`;
-    if (it.role !== 'sticker') {    // handles to move the borders of the frame
-      const t = sw * 7, L = Math.max(Math.min(Math.min(it.w, it.h) * 0.35, sw * 60), sw * 14);
-      for (const [edge, x, y, w, h] of [['top', it.x + it.w / 2 - L / 2, it.y - t / 2, L, t],
-          ['bottom', it.x + it.w / 2 - L / 2, it.y + it.h - t / 2, L, t],
-          ['left', it.x - t / 2, it.y + it.h / 2 - L / 2, t, L], ['right', it.x + it.w - t / 2, it.y + it.h / 2 - L / 2, t, L]]) {
-        s += `<rect class="handle ${edge}" data-edge="${edge}" x="${x}" y="${y}" width="${w}" height="${h}"`
-          + ` rx="${t / 2}" stroke-width="${sw}"/>`;
-      }
-    }
+  }
+  return s + '</g>';
+}
+
+// the handles of the picked frame: its borders, and its center to move it; drawn after all
+// the frames, so that no other frame (its caption) covers them
+function handlesSvg(it, sw) {
+  if (it.role === 'sticker') return '';
+  let s = `<g class="frame" data-name="${esc(it.name)}" data-kind="${it.kind === 'caption' ? 'text' : it.kind}">`;
+  const th = sw * 7, L = Math.max(Math.min(Math.min(it.w, it.h) * 0.35, sw * 60), sw * 14);    // not t: t() translates
+  for (const [edge, x, y, w, h] of [['top', it.x + it.w / 2 - L / 2, it.y - th / 2, L, th],
+      ['bottom', it.x + it.w / 2 - L / 2, it.y + it.h - th / 2, L, th],
+      ['left', it.x - th / 2, it.y + it.h / 2 - L / 2, th, L], ['right', it.x + it.w - th / 2, it.y + it.h / 2 - L / 2, th, L]]) {
+    s += `<rect class="handle ${edge}" data-edge="${edge}" x="${x}" y="${y}" width="${w}" height="${h}"`
+      + ` rx="${th / 2}" stroke-width="${sw}"/>`;
+  }
+  if (it.role !== 'caption') {    // to move the frame (a caption moves with its image)
+    const r = Math.max(sw * 11, Math.min(it.w, it.h) / 12), cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+    s += `<g class="movehandle"><title>${esc(t('Move the frame'))}</title>`
+      + `<circle cx="${cx}" cy="${cy}" r="${r}" stroke-width="${sw}"/>`
+      + `<text x="${cx}" y="${cy}" font-size="${r * 1.3}" text-anchor="middle" dominant-baseline="central">✥</text></g>`;
   }
   return s + '</g>';
 }
@@ -863,6 +882,7 @@ function selectSpread(i) {
   hideClearConfirm();
   message('');
   loadPageOptions();
+  autoChoose();
   renderAll();
 }
 
@@ -907,6 +927,14 @@ function bindView() {
     const g = e.target.closest('.frame');
     if (pendingCrop && (!g || g.dataset.name !== pendingCrop.name)) flushCrop();
     if (!g || e.button !== 0) return;
+    if (e.target.closest('.movehandle')) {    // the frame is moved, across or up and down
+      const it = itemByName(g.dataset.name);
+      gesture = {mode: 'moveframe', item: it, x0: e.clientX, y0: e.clientY, moved: false,
+        start: {x: it.x, y: it.y, w: it.w, h: it.h}, caption: captionOf(it)};
+      view.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+      return;
+    }
     if (e.target.classList.contains('handle')) {    // a border of the frame is moved
       const it = itemByName(g.dataset.name);
       gesture = {mode: 'resize', edge: e.target.dataset.edge, item: it, x0: e.clientX, y0: e.clientY, moved: false,
@@ -927,7 +955,7 @@ function bindView() {
     const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
     if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
     gesture.moved = true;
-    if (gesture.mode === 'resize') {
+    if (gesture.mode === 'resize' || gesture.mode === 'moveframe') {
       resizeFrame(gesture, dx / view.getScreenCTM().a, dy / view.getScreenCTM().a);
     } else if (gesture.mode === 'move') {
       const k = view.getScreenCTM().a;
@@ -962,7 +990,7 @@ function bindView() {
           ? t('Click one of the selected images to put it in the frame, or drag an image onto it.') : '');
         renderStage(); renderChosenBar(); renderTextTools(true);
       } else toggleTarget(pageOfItem(g.name));
-    } else if (g.mode === 'resize') commitResize(g);
+    } else if (g.mode === 'resize' || g.mode === 'moveframe') commitResize(g);
     else if (g.mode === 'move') moveSticker(g.item, g.item.x + g.dx, g.item.y + g.dy, g.item.w);
     else if (g.mode === 'pan') commitCrop(g.item);
     else if (g.mode === 'swap') {
@@ -1009,37 +1037,83 @@ function captionOf(it) {
   return p && p.items.find(c => c.role === 'caption' && c.slot === it.slot + 1 && c.layout === it.layout) || null;
 }
 
-// the border follows the pointer, and sticks to the margins and to the borders of the other
-// frames (or at the gap of the layout from them) when it is close
-function resizeFrame(g, dx, dy) {
-  const it = g.item, st = g.start, page = doc.pages.find(p => p.items.includes(it));
-  const m = page.margins, gap = mm(SPACING[$('spacing').value] || 5), tol = Math.max(page.width, page.height) / 120;
-  const others = page.items.filter(o => o !== it && o !== g.caption && o.role !== 'sticker');
-  const vertical = g.edge === 'left' || g.edge === 'right';
-  const lines = vertical ? [m.left, page.width - m.right] : [m.top, page.height - m.bottom];
-  for (const o of others) {
-    const a = vertical ? o.x : o.y, b = vertical ? o.x + o.w : o.y + o.h;
-    lines.push(a, b, a - gap, b + gap);
+// where a frame may go: the frames of the double page side by side, and the area inside the
+// margins (of its page, or of both pages for a frame across the fold)
+function spreadGeometry(it) {
+  const sp = currentSpread(), rects = [];
+  let offset = 0, pageOffset = 0, page = null;
+  for (const p of sp) {
+    if (p.items.includes(it)) { page = p; pageOffset = offset; }
+    for (const o of p.items) rects.push({o, x: o.x + offset, y: o.y, w: o.w, h: o.h});
+    offset += p.width;
   }
-  const snap = v => {    // the closest line within the tolerance, or v
+  const m = page.margins, L = sp[0], R = sp[sp.length - 1];
+  const across = sp.length === 2 && (it.x < -0.01 || it.x + it.w > page.width + 0.01);
+  const area = across
+    ? {x0: L.margins.left, x1: L.width + R.width - R.margins.right,
+       y0: Math.max(L.margins.top, R.margins.top), y1: Math.min(L.height - L.margins.bottom, R.height - R.margins.bottom)}
+    : {x0: pageOffset + m.left, x1: pageOffset + page.width - m.right, y0: m.top, y1: page.height - m.bottom};
+  return {rects, pageOffset, area, page};
+}
+
+// a border follows the pointer (or the whole frame, across or up and down): it sticks to the
+// margins and to the borders of the other frames (or at the gap of the layout from them), stays
+// inside the margins and does not cover other frames; an image takes its caption along
+function resizeFrame(g, dx, dy) {
+  const it = g.item, st = g.start, geo = g.geo || (g.geo = spreadGeometry(it));
+  const gap = mm(SPACING[$('spacing').value] || 5), tol = Math.max(geo.page.width, geo.page.height) / 120;
+  const capH = g.caption ? g.caption.h : 0, eps = 0.01, min = mm(5);
+  // the frame and its caption, in the coordinates of the double page
+  const b = {x: st.x + geo.pageOffset, y: st.y, w: st.w, h: st.h + capH};
+  const others = geo.rects.filter(r => r.o !== it && r.o !== g.caption && r.o.role !== 'sticker');
+  const acrossY = r => r.y < b.y + b.h - eps && r.y + r.h > b.y + eps;    // beside the frame
+  const acrossX = r => r.x < b.x + b.w - eps && r.x + r.w > b.x + eps;    // above or below it
+  // the limits: margins, and the nearest frames on each side
+  const lim = {
+    left: Math.max(geo.area.x0, ...others.filter(r => acrossY(r) && r.x + r.w <= b.x + eps).map(r => r.x + r.w)),
+    right: Math.min(geo.area.x1, ...others.filter(r => acrossY(r) && r.x >= b.x + b.w - eps).map(r => r.x)),
+    top: Math.max(geo.area.y0, ...others.filter(r => acrossX(r) && r.y + r.h <= b.y + eps).map(r => r.y + r.h)),
+    bottom: Math.min(geo.area.y1, ...others.filter(r => acrossX(r) && r.y >= b.y + b.h - eps).map(r => r.y))};
+  const linesX = [geo.area.x0, geo.area.x1], linesY = [geo.area.y0, geo.area.y1];
+  for (const r of others) {
+    linesX.push(r.x, r.x + r.w, r.x - gap, r.x + r.w + gap);
+    linesY.push(r.y, r.y + r.h, r.y - gap, r.y + r.h + gap);
+  }
+  const snap = (v, lines) => {    // the closest line within the tolerance, or v
     let best = v, distance = tol;
     for (const l of lines) if (Math.abs(l - v) < distance) { best = l; distance = Math.abs(l - v); }
     return best;
   };
-  const min = mm(5), captionH = g.caption ? g.caption.h : 0;
-  let {x, y, w, h} = st;
-  if (g.edge === 'left') { x = Math.min(snap(st.x + dx), st.x + st.w - min); w = st.x + st.w - x; }
-  if (g.edge === 'right') w = Math.max(snap(st.x + st.w + dx) - st.x, min);
-  if (g.edge === 'top') { y = Math.min(snap(st.y + dy), st.y + st.h - min); h = st.y + st.h - y; }
-  if (g.edge === 'bottom') {    // with a caption, it is the bottom of the caption that sticks
-    h = Math.max(snap(st.y + st.h + captionH + dy) - captionH - st.y, min);
+  let {x, y, w, h} = b;
+  if (g.mode === 'moveframe') {
+    if (!g.axis) g.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';    // the first move chooses the direction
+    if (g.axis === 'x') {
+      let nx = clamp(b.x + dx, lim.left, lim.right - b.w);
+      const left = snap(nx, linesX), right = snap(nx + b.w, linesX) - b.w;    // either border sticks
+      nx = Math.abs(left - nx) <= Math.abs(right - nx) ? left : right;
+      x = clamp(nx, lim.left, lim.right - b.w);
+    } else {
+      let ny = clamp(b.y + dy, lim.top, lim.bottom - b.h);
+      const top = snap(ny, linesY), bottom = snap(ny + b.h, linesY) - b.h;
+      ny = Math.abs(top - ny) <= Math.abs(bottom - ny) ? top : bottom;
+      y = clamp(ny, lim.top, lim.bottom - b.h);
+    }
+  } else if (g.edge === 'left') {
+    x = clamp(snap(b.x + dx, linesX), lim.left, b.x + b.w - min); w = b.x + b.w - x;
+  } else if (g.edge === 'right') {
+    w = clamp(snap(b.x + b.w + dx, linesX), b.x + min, lim.right) - b.x;
+  } else if (g.edge === 'top') {
+    y = clamp(snap(b.y + dy, linesY), lim.top, b.y + b.h - capH - min); h = b.y + b.h - y;
+  } else {    // bottom: with a caption, it is the bottom of the caption
+    h = clamp(snap(b.y + b.h + dy, linesY), b.y + capH + min, lim.bottom) - b.y;
   }
-  Object.assign(it, {x, y, w, h});
+  // back to the coordinates of the page of the frame, without the caption
+  Object.assign(it, {x: x - geo.pageOffset, y, w, h: h - capH});
   if (g.crop && g.aspect) {    // the image keeps its zoom and its center
-    const cw = Math.max(w, h * g.aspect), iw = cw * g.crop.zoom, ih = iw / g.aspect;
-    it.crop = [clamp(w / 2 - g.crop.cx * iw, w - iw, 0), clamp(h / 2 - g.crop.cy * ih, h - ih, 0), iw, ih];
+    const fw = it.w, fh = it.h, cw = Math.max(fw, fh * g.aspect), iw = cw * g.crop.zoom, ih = iw / g.aspect;
+    it.crop = [clamp(fw / 2 - g.crop.cx * iw, fw - iw, 0), clamp(fh / 2 - g.crop.cy * ih, fh - ih, 0), iw, ih];
   }
-  if (g.caption) Object.assign(g.caption, {x, y: y + h, w});
+  if (g.caption) Object.assign(g.caption, {x: it.x, y: it.y + it.h, w: it.w});
   g.moved = true;
   if (!g.frame) g.frame = requestAnimationFrame(() => {    // redraw the view (the pointer stays captured)
     g.frame = null;
@@ -1247,14 +1321,19 @@ async function swapImages(first, second) {
 function toggleTarget(page) {
   if (!page) return;
   flushCrop();
-  const sp = currentSpread();
+  const sp = currentSpread(), clicked = sp.find(p => p.page === page);
+  const layouts = new Set(clicked ? clicked.items.filter(i => i.app && i.layout).map(i => i.layout) : []);
   if (sp.length === 1) target = new Set([page]);
-  else if (target.has(page) && target.size === 1) target = new Set(sp.map(p => p.page));
+  else if (layouts.size && !target.has(page)) {
+    // a page made by this page: edit it, with the facing page if the layout covers both
+    target = new Set(sp.filter(p => p.items.some(i => layouts.has(i.layout))).map(p => p.page));
+  } else if (target.has(page) && target.size === 1) target = new Set(sp.map(p => p.page));
   else if (target.has(page)) target.delete(page);
   else target.add(page);
   hideClearConfirm();
   loadPageOptions();
-  renderStage(); renderLayouts();
+  autoChoose();
+  renderStage(); renderLayouts(); renderChosenBar(); renderPool();
 }
 
 // ---------- layout proposals for the selected images on the target pages
@@ -1410,12 +1489,32 @@ function layoutsFor(tp, n, images, o) {
 function proposals() {
   const sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
   if (!tp.length || tp.some(foreign)) return [];
-  let images = chosen.map(path => pool.find(im => im.path === path)).filter(Boolean);
-  if (!images.length) {    // no image selected: other layouts for the photos of the page
-    const content = pageContent(tp);
-    images = content ? content.photos.map(photoRecord) : [];
-  }
+  const images = chosenRecords(tp);
   return images.length ? layoutsFor(tp, images.length, images, options()).slice(0, 30) : [];
+}
+
+// the selected images: a photo of the page keeps its frame's crop, rotation, mirror and caption
+function chosenRecords(tp) {
+  const content = tp.length ? pageContent(tp) : null, byKey = {};
+  if (content) for (const it of content.photos) byKey[photoKey(it)] = it;
+  return chosen.map(k => byKey[k] ? photoRecord(byKey[k]) : pool.find(im => im.path === k)).filter(Boolean);
+}
+// how to show a selected image: from the images of the book, or from the page
+function chosenImage(key) {
+  const im = pool.find(p => p.path === key);
+  if (im) return im;
+  for (const p of doc.pages) for (const it of p.items) {
+    if (it.image && photoKey(it) === key) return {name: fileName(key), path: it.image, preview: canPreview(it.image),
+      size: it.pixels, orientation: 1, thumb: false};
+  }
+  return null;
+}
+// a page made by this page shows its photos as the selected images, as when it was made
+function autoChoose() {
+  if (chosen.length && !autoChosen) return;    // images chosen by the user stay
+  const tp = currentSpread().filter(p => target.has(p.page)), content = tp.length ? pageContent(tp) : null;
+  chosen = content ? content.photos.map(photoKey) : [];
+  autoChosen = chosen.length > 0;
 }
 
 // ---------- editing a page made by this page: its content is kept when the layout changes
@@ -1564,8 +1663,7 @@ async function reapply(confirmed) {
 
 function renderLayouts() {
   const sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
-  const content = !chosen.length && tp.length ? pageContent(tp) : null;
-  const n = chosen.length || (content ? content.photos.length : 0);
+  const n = chosen.length, content = autoChosen;
   const box = $('layouts');
   box.innerHTML = '';
   box.className = 'layouts' + (tp.length === 1 ? ' single' : '');
@@ -1719,6 +1817,7 @@ function renderPool() {
       };
       head.querySelector('button').onclick = e => {
         e.stopPropagation();
+        autoChosen = false;
         const all = group.images.every(im => chosen.includes(im.path));
         for (const im of group.images) {
           const i = chosen.indexOf(im.path);
@@ -1783,14 +1882,14 @@ function renderChosenBar() {
   box.className = 'chosenbar' + (picked ? ' picking' : '');
   if (!chosen.length) box.innerHTML = `<div class="muted">${esc(t('No image selected.'))}</div>`;
   chosen.forEach((path, i) => {
-    const im = pool.find(p => p.path === path);
+    const im = chosenImage(path);
     if (!im) return;
     const d = document.createElement('div');
     d.className = 'item';
     d.title = picked ? t('Put this image in the selected frame') : im.name;
     d.innerHTML = `<div class="img${im.preview ? ' waiting' : ''}">${thumbHtml(im)}</div><span class="badge">${i + 1}</span>`;
     d.onclick = () => picked ? replaceImage(path)
-      : showImage(chosen.map(p => pool.find(im => im.path === p)), i);
+      : showImage(chosen.map(chosenImage), i);
     d.draggable = true;
     d.ondragstart = e => { e.dataTransfer.setData('text/plain', path); e.dataTransfer.effectAllowed = 'copy'; };
     box.appendChild(d);
@@ -1808,6 +1907,7 @@ async function replaceImage(path, frame) {
 }
 
 function toggleChosen(path) {
+  autoChosen = false;
   const i = chosen.indexOf(path);
   if (i >= 0) chosen.splice(i, 1); else chosen.push(path);
   renderPool(); renderChosenBar(); renderLayouts();
@@ -2159,6 +2259,7 @@ async function undo() {
 function renderAll() {
   if (!doc) return;
   current = Math.min(current, spreads().length - 1);
+  autoChoose();    // after a change of the page (erase, undo...)
   renderHeader();
   renderSpreads();
   renderStage();
@@ -2208,7 +2309,7 @@ async function start() {
   $('gridView').onclick = () => setPoolView('grid');
   $('listView').onclick = () => setPoolView('list');
   $('addImages').onclick = () => { $('browser').classList.add('open'); browse(listing ? listing.folder : S.folder); };
-  $('clearChosen').onclick = () => { chosen = []; picked = null; message(''); renderAll(); };
+  $('clearChosen').onclick = () => { chosen = []; autoChosen = false; picked = null; message(''); renderAll(); };
   $('closeBrowser').onclick = () => $('browser').classList.remove('open');
   $('parentFolder').onclick = () => browse(listing.parent);
   $('folder').onkeydown = e => { if (e.key === 'Enter') browse($('folder').value); };

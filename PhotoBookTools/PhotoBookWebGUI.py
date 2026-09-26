@@ -78,6 +78,9 @@ SOURCE_ATTRIBUTE = 'PhotoBookSource'    # image file before rotation
 ROTATION_ATTRIBUTE = 'PhotoBookRotation'    # rotation of the image, in degrees clockwise
 OPTIONS_ATTRIBUTE = 'PhotoBookOptions'    # options of the layout (captions, text block, spacing...)
 KEPT_ATTRIBUTE = 'PhotoBookKept'    # texts of the page kept aside, when their frames were removed
+# paragraph styles of the captions and text blocks: created once, then changed in Scribus
+# (Style Manager) for the whole book
+TEXT_STYLES = {'caption': 'PhotoBookCaption', 'text': 'PhotoBookText'}
 UNDO_STEPS = 30
 
 ##################################################
@@ -435,13 +438,19 @@ class ScPhotoBookWebGUI:
                 return layer
         return getActiveLayer()
 
+    def sendToLayer(self, layer, name):
+        """ sendToLayer leaves items selected, and some functions (setParagraphStyle) then
+            change the selection instead of the frame they are given."""
+        sendToLayer(layer, name)
+        deselectAll()
+
     def trash(self, name, page):
         """ Remove an item, it can come back with undo."""
         layer = self.layerOf(name, page)
         self.trashLayer()
-        sendToLayer(TRASH_LAYER, name)
+        self.sendToLayer(TRASH_LAYER, name)
         self.step['trash'].append(name)
-        self.step['undo'].append(lambda: sendToLayer(layer, name))
+        self.step['undo'].append(lambda: self.sendToLayer(layer, name))
 
     def itemPage(self, name):
         """ Page of an item (getItemPageNumber is missing in Scribus 1.5)."""
@@ -459,12 +468,12 @@ class ScPhotoBookWebGUI:
         copy = duplicateObjects([frame])[0]
         deselectAll()
         self.trashLayer()
-        sendToLayer(TRASH_LAYER, copy)
+        self.sendToLayer(TRASH_LAYER, copy)
         self.step['trash'].append(copy)
         def restore():
             if objectExists(frame):
                 deleteObject(frame)
-            sendToLayer(layer, copy)
+            self.sendToLayer(layer, copy)
             setItemName(frame, copy)
         self.step['undo'].append(restore)
 
@@ -639,6 +648,8 @@ class ScPhotoBookWebGUI:
             saveDoc()
         self.writePool()
         self.changed = False
+        # the file holds the removed items (hidden layer) until it is saved again when closing
+        self.savedWithTrash = TRASH_LAYER in getLayers()
         return {'document': self.document(), 'saved': time.strftime('%H:%M:%S')}
 
     def finish(self, save):
@@ -648,7 +659,9 @@ class ScPhotoBookWebGUI:
         trash = TRASH_LAYER in getLayers()
         self.emptyTrash()
         saved = False
-        if save and os.path.isabs(getDocName()) and (self.changed or trash):
+        # saved even if not asked when the file holds the removed items of an earlier save
+        if os.path.isabs(getDocName()) and ((save and (self.changed or trash))
+                or getattr(self, 'savedWithTrash', False)):
             saveDoc()
             self.writePool()
             saved = True
@@ -667,14 +680,60 @@ class ScPhotoBookWebGUI:
         createCustomLineStyle("frameBorderLineStyle2",
             [{'Color': "frameBorderColor2", 'Width': 1}])
 
-    def textStyle(self, name, height, lines):
-        """ Paragraph style whose font fits 'lines' lines in 'height' document units."""
-        points = height * POINTS_PER_UNIT[getUnit()]
-        fontsize = max(6, min(14, round(points / lines / 1.4)))
-        createCharStyle(name=name + "Char", fontsize=fontsize)
-        createParagraphStyle(name=name, linespacingmode=0,
-            alignment=ALIGN_CENTERED if lines == 1 else ALIGN_LEFT, charstyle=name + "Char")
-        return name
+    def ensureTextStyles(self):
+        """ The paragraph styles of captions and text blocks, created if missing only:
+            they may have been changed in Scribus, for the whole book."""
+        existing = getParagraphStyles() if hasattr(scribus, 'getParagraphStyles') else getAllStyles()
+        for role, name, fontsize, alignment in (('caption', TEXT_STYLES['caption'], 9, ALIGN_CENTERED),
+                ('text', TEXT_STYLES['text'], 11, ALIGN_LEFT)):
+            if name not in existing:
+                createCharStyle(name=name + "Char", fontsize=fontsize)
+                createParagraphStyle(name=name, linespacingmode=0, alignment=alignment, charstyle=name + "Char")
+
+    def firstStyle(self, frame):
+        """ The paragraph style of the first character (getParagraphStyle is reliable only
+            with some text selected)."""
+        if not getTextLength(frame):
+            return None
+        selectText(0, 1, frame)
+        style = getParagraphStyle(frame)
+        selectText(0, 0, frame)
+        return style
+
+    def styleFor(self, frame, current):
+        """ The paragraph style a text should have: the style it has when it is one of the
+            user (a style made in Scribus); else the style of its role (PhotoBookCaption,
+            PhotoBookText). A text frame not made by the page is a caption if it is low."""
+        role = self.attributes(frame).get(ROLE_ATTRIBUTE)
+        if role not in TEXT_STYLES:
+            role = 'caption' if getSize(frame)[1] * POINTS_PER_UNIT[getUnit()] < 12 * 72 / 25.4 else 'text'
+        expected = TEXT_STYLES[role]
+        if current and current != 'Default Paragraph Style' and current not in TEXT_STYLES.values():
+            return current    # a style chosen in Scribus
+        return expected
+
+    def repairStyles(self):
+        """ Captions and text blocks made by earlier versions could have no style or the
+            wrong one: they get the style of their role, unless they were formatted by hand."""
+        if not haveDoc():
+            return
+        self.ensureTextStyles()
+        current = currentPage()
+        for page in range(1, pageCount() + 1):
+            for name in self.pageItems(page):
+                if getObjectType(name) != 'TextFrame' or not name.startswith(ITEM_PREFIX):
+                    continue
+                if self.attributes(name).get(ROLE_ATTRIBUTE) not in TEXT_STYLES:
+                    continue
+                formats = self.charFormats(name)
+                now = list(formats)[0][3] if len(formats) == 1 else None
+                style = self.styleFor(name, now)
+                if len(formats) <= 1 and style != now:
+                    deselectAll()
+                    setParagraphStyle(style, name)
+                    self.recordFormat(name)
+                    self.changed = True
+        gotoPage(current)
 
     def imageSize(self, frame):
         """ Size of the image in points at scale 1: measured when the image was placed,
@@ -746,17 +805,23 @@ class ScPhotoBookWebGUI:
         return styled
 
     def writeText(self, frame, text):
-        """ Replace the text: all of it in the paragraph style of the frame
-            (PhotoBookText or PhotoBookCaption for the frames of the page)."""
-        style = getParagraphStyle(frame)
+        """ Replace the text, all of it in one paragraph style: the style it had if it is one
+            chosen in Scribus, else the style of its role (see styleFor), so that a text
+            always has a style and the whole book changes with it."""
+        style = self.styleFor(frame, self.firstStyle(frame))
+        self.ensureTextStyles()
         setText(text, frame)
         if style:
+            deselectAll()    # else the style may go to the selected items
             setParagraphStyle(style, frame)
-        if text:    # the format given by the page, to know later if it was changed in Scribus
-            formats = self.charFormats(frame)
-            if len(formats) == 1:
-                self.setAttribute(frame, FORMAT_ATTRIBUTE, json.dumps(list(formats.pop())))
+        self.recordFormat(frame)
         self.styled[frame] = (text.replace('\r', '\n'), False)
+
+    def recordFormat(self, frame):
+        """ The format given by the page, to know later if the text was changed in Scribus."""
+        formats = self.charFormats(frame)
+        if len(formats) == 1:
+            self.setAttribute(frame, FORMAT_ATTRIBUTE, json.dumps(list(formats.pop())))
 
     def setCrop(self, frame, zoom, cx, cy):
         """ Scale the image to fill the frame, zoomed, with the point (cx, cy) of the
@@ -841,10 +906,8 @@ class ScPhotoBookWebGUI:
                 caption = frame['kind'] == 'caption'
                 newFrame = createText(x, y, w, h, name)
                 created.append(newFrame)
-                style = self.textStyle("PhotoBookCaption" if caption else "PhotoBookText",
-                    h, 1 if caption else 12)
-                setText('x', newFrame)
-                setParagraphStyle(style, newFrame)
+                self.ensureTextStyles()
+                self.setAttribute(newFrame, ROLE_ATTRIBUTE, frame['kind'])    # gives the style
                 self.writeText(newFrame, frame.get('text') or (tr('Caption') if caption else tr('Your text here')))
                 if caption:
                     setTextVerticalAlignment(ALIGNV_CENTERED, newFrame)
@@ -1120,6 +1183,9 @@ class ScPhotoBookWebGUI:
         return [self.imageInfo(path) for path in self.pool]
 
     def state(self):
+        if not getattr(self, 'repaired', False):    # once per session
+            self.repaired = True
+            self.repairStyles()
         params = dict(self.config['DEFAULT'])
         folder = params.get('imagefolder', '')
         if not os.path.isdir(folder) and self.pool:
