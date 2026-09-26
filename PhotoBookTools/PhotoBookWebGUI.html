@@ -1378,13 +1378,35 @@ function renderLayouts() {
   });
 }
 
+let applying = 0;    // number of the last layout chosen
 async function apply(tp, frames, layout) {
-  await run(async () => {
+  const id = ++applying;
+  // shown at once as it will be (Scribus takes a moment to load the photos):
+  // the frames of the layout, and the stickers that stay above them
+  const pages = new Set(tp.map(p => p.page));
+  for (const p of doc.pages) {
+    if (!pages.has(p.page)) continue;
+    p.items = frames.filter(f => f.page === p.page).map(f => ({
+      kind: f.kind === 'caption' ? 'text' : f.kind, role: f.kind, x: f.x, y: f.y, w: f.w, h: f.h,
+      image: f.image, app: true, layout})).concat(p.items.filter(i => i.role === 'sticker'));
+  }
+  picked = null;
+  renderStage(); renderSpreads();
+  $('layouts').querySelectorAll('.layout').forEach(b => b.classList.remove('current'));
+  message(t('Placing the images in Scribus…'));
+  try {
     const r = await api('/api/apply', {pages: tp.map(p => p.page), frames, border: $('border').value, layout});
-    doc = r.document; markChanged(); picked = null;
+    if (id !== applying) return;    // another layout was chosen meanwhile: its answer will follow
+    doc = r.document; markChanged();
     message(r.errors.length ? t('Errors:') + ' ' + r.errors.join('; ') : t('Layout applied.'), r.errors.length > 0);
     renderAll();
-  });
+  } catch (e) {
+    message(e.message, true);
+    if (id === applying) {    // show the document as it is in Scribus
+      try { doc = (await api('/api/state')).document; } catch (e2) {}
+      renderAll();
+    }
+  }
 }
 
 // ---------- erase pages

@@ -262,24 +262,27 @@ def needsPreview(path, info, size):
 
 class Previews(threading.Thread):
     """ Makes the small copies of the images of the book in advance, one at a time,
-        so that the page shows them at once."""
+        so that the page shows them at once: the thumbnails first, then the copies
+        for the page view."""
     def __init__(self):
         threading.Thread.__init__(self, daemon=True)
-        self.queue, self.seen = queue.Queue(), set()
+        self.queue, self.seen, self.count = queue.PriorityQueue(), set(), 0
         self.start()
 
     def add(self, paths):
         for path in paths:
             if path not in self.seen:
                 self.seen.add(path)
-                self.queue.put(path)
+                for rank, size in enumerate((PREVIEW_SIZES['thumb'], PREVIEW_SIZES['view'])):
+                    self.count += 1    # in the order given, for the same size
+                    self.queue.put((rank, self.count, path, size))
 
     def run(self):
         while True:
-            path = self.queue.get()
+            rank, count, path, size = self.queue.get()
             try:
-                if CONVERTER and os.path.isfile(path) and needsPreview(path, readImageInfo(path), 400):
-                    cachedPreview(path, 400)
+                if CONVERTER and os.path.isfile(path) and needsPreview(path, readImageInfo(path), size):
+                    cachedPreview(path, size)
             except Exception:
                 pass
 
@@ -763,8 +766,17 @@ class ScPhotoBookWebGUI:
             iw, ih = size[0] * scale, size[1] * scale
             ox = min(0.0, max(w - iw, w / 2 - cx * iw))
             oy = min(0.0, max(h - ih, h / 2 - cy * ih))
-            setImageScale(scale, scale, frame)
-            setImageOffset(ox, oy, frame)
+            # through the properties: same result as setImageScale and setImageOffset, which
+            # decode the image again each (0.2 s for a big photo), without that. The internal
+            # scale differs from getImageScale by the resolution of the image (300/72 at 300 dpi),
+            # the internal offsets are in the units of the image.
+            internal = getProperty(frame, 'imageXScale')
+            ratio = getImageScale(frame)[0] / internal if internal else 1.0
+            local = scale / ratio
+            setProperty(frame, 'imageXScale', local)
+            setProperty(frame, 'imageYScale', local)
+            setProperty(frame, 'imageXOffset', ox / local)
+            setProperty(frame, 'imageYOffset', oy / local)
         finally:
             setUnit(unit)
 

@@ -185,6 +185,7 @@ FRENCH = {
     'Choosing a layout replaces the current one.':
         'Choisir une mise en page remplace la mise en page actuelle.',
     'Layout applied.': 'Mise en page appliquée.',
+    'Placing the images in Scribus…': 'Placement des images dans Scribus…',
     'Errors:': 'Erreurs :',
     'Page {}': 'Page {}',
     'Pages {}–{}': 'Pages {}–{}',
