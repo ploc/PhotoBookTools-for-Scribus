@@ -186,6 +186,9 @@ FRENCH = {
         'Choisir une mise en page remplace la mise en page actuelle.',
     'Layout applied.': 'Mise en page appliquée.',
     'Placing the images in Scribus…': 'Placement des images dans Scribus…',
+    'The frames of this page were adjusted by hand: choose a layout to lay it out again with these options.':
+        'Les cadres de cette page ont été ajustés à la main : choisissez une mise en page pour la refaire '
+        'avec ces options.',
     'Layouts for the {} photos of this page': 'Mises en page pour les {} photos de cette page',
     'Show': 'Afficher',
     '{} caption': '{} légende',
@@ -249,6 +252,7 @@ FRENCH = {
     'Move': 'déplacement',
     'Text': 'texte',
     'Rotation': 'rotation',
+    'Frame size': 'taille du cadre',
     'Mirror': 'miroir',
     'Add pages': 'ajout de pages',
     'Insert pages': 'insertion de pages',

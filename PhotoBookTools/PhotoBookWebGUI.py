@@ -931,6 +931,49 @@ class ScPhotoBookWebGUI:
             setScaleImageToFrame(True, True, frame)
         return {'document': self.document()}
 
+    def attributes(self, name):
+        return {a.get('Name'): a.get('Value') for a in getObjectAttributes(name)}
+
+    def resize(self, frame, page, x, y, w, h):
+        """ Resize a frame of a layout (a border moved in the page): the image keeps its zoom
+            and its center, the caption of an image stays under it. The page is then marked
+            as adjusted by hand: its layout is not made again when the options change."""
+        attributes = self.attributes(frame)
+        state = None
+        if getObjectType(frame) == 'ImageFrame' and getImageFile(frame):
+            rect, (fw, fh) = self.imageRect(frame), getSize(frame)
+            if rect:
+                state = (min(rect[2] / fw, rect[3] / fh), (fw / 2 - rect[0]) / rect[2], (fh / 2 - rect[1]) / rect[3])
+        self.snapshot(frame)
+        gotoPage(page)
+        sizeObject(w, h, frame)
+        moveObjectAbs(x, y, frame)
+        if state:
+            self.setCrop(frame, *state)
+        # the caption made just after the image follows it
+        slot = attributes.get(SLOT_ATTRIBUTE)
+        if attributes.get(ROLE_ATTRIBUTE) == 'image' and slot:
+            for name in self.pageItems(page):
+                other = self.attributes(name)
+                if other.get(ROLE_ATTRIBUTE) == 'caption' and other.get(SLOT_ATTRIBUTE) == str(int(slot) + 1) \
+                        and other.get(LAYOUT_ATTRIBUTE) == attributes.get(LAYOUT_ATTRIBUTE):
+                    self.snapshot(name)
+                    gotoPage(page)
+                    sizeObject(w, getSize(name)[1], name)
+                    moveObjectAbs(x, y + h, name)
+        # adjusted by hand: all the items of this layout, on this page and the facing one
+        layout = attributes.get(LAYOUT_ATTRIBUTE)
+        if layout and layout != 'custom':
+            for p in (page - 1, page, page + 1):
+                if 1 <= p <= pageCount():
+                    for name in self.pageItems(p):
+                        if self.attributes(name).get(LAYOUT_ATTRIBUTE) == layout:
+                            self.setAttribute(name, LAYOUT_ATTRIBUTE, 'custom')
+                            self.step['undo'].append(lambda name=name:
+                                objectExists(name) and self.setAttribute(name, LAYOUT_ATTRIBUTE, layout))
+        deselectAll()
+        return {'document': self.document()}
+
     def deleteItem(self, frame):
         self.trash(frame, self.itemPage(frame))
         return {'document': self.document()}
@@ -1274,6 +1317,9 @@ class WebApp:
                 body['x'], body['y'], body['size'])
         if path == '/api/move':
             return maker.action('Move', maker.moveItem, body['frame'], body['page'],
+                body['x'], body['y'], body['w'], body['h'])
+        if path == '/api/resize':
+            return maker.action('Frame size', maker.resize, body['frame'], body['page'],
                 body['x'], body['y'], body['w'], body['h'])
         if path == '/api/delete':
             return maker.action('Delete', maker.deleteItem, body['frame'])

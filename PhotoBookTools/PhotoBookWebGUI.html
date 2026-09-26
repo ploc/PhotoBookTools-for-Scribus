@@ -220,6 +220,10 @@ svg .lowres text { fill: #fff; font-weight: 700; }
 .keptbox.on { display: flex; }
 .keptbox div { white-space: pre-wrap; user-select: text; }
 
+svg .handle { fill: var(--accent); stroke: #fff; }
+svg .handle.top, svg .handle.bottom { cursor: ns-resize; }
+svg .handle.left, svg .handle.right { cursor: ew-resize; }
+
 /* svg pages */
 svg .pg { fill: var(--page); }
 svg .pgline { fill: none; stroke: #b5b2ab; }
@@ -773,6 +777,15 @@ function itemSvg(it, id, sw, opts) {
   }
   if (opts.large && it.name && it.name === picked) {
     s += `<rect class="pick" ${r} stroke-width="${sw * 5}" pointer-events="none"/>`;
+    if (it.role !== 'sticker') {    // handles to move the borders of the frame
+      const t = sw * 7, L = Math.max(Math.min(Math.min(it.w, it.h) * 0.35, sw * 60), sw * 14);
+      for (const [edge, x, y, w, h] of [['top', it.x + it.w / 2 - L / 2, it.y - t / 2, L, t],
+          ['bottom', it.x + it.w / 2 - L / 2, it.y + it.h - t / 2, L, t],
+          ['left', it.x - t / 2, it.y + it.h / 2 - L / 2, t, L], ['right', it.x + it.w - t / 2, it.y + it.h / 2 - L / 2, t, L]]) {
+        s += `<rect class="handle ${edge}" data-edge="${edge}" x="${x}" y="${y}" width="${w}" height="${h}"`
+          + ` rx="${t / 2}" stroke-width="${sw}"/>`;
+      }
+    }
   }
   return s + '</g>';
 }
@@ -894,6 +907,15 @@ function bindView() {
     const g = e.target.closest('.frame');
     if (pendingCrop && (!g || g.dataset.name !== pendingCrop.name)) flushCrop();
     if (!g || e.button !== 0) return;
+    if (e.target.classList.contains('handle')) {    // a border of the frame is moved
+      const it = itemByName(g.dataset.name);
+      gesture = {mode: 'resize', edge: e.target.dataset.edge, item: it, x0: e.clientX, y0: e.clientY, moved: false,
+        start: {x: it.x, y: it.y, w: it.w, h: it.h}, crop: it.crop ? cropState(it) : null,
+        aspect: it.crop ? it.crop[2] / it.crop[3] : null, caption: captionOf(it)};
+      view.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+      return;
+    }
     gesture = {name: g.dataset.name, kind: g.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false};
     const it = itemByName(gesture.name);
     if (gesture.kind === 'sticker') Object.assign(gesture, {mode: 'move', item: it, g, x: it.x, y: it.y});
@@ -905,7 +927,9 @@ function bindView() {
     const dx = e.clientX - gesture.x0, dy = e.clientY - gesture.y0;
     if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
     gesture.moved = true;
-    if (gesture.mode === 'move') {
+    if (gesture.mode === 'resize') {
+      resizeFrame(gesture, dx / view.getScreenCTM().a, dy / view.getScreenCTM().a);
+    } else if (gesture.mode === 'move') {
       const k = view.getScreenCTM().a;
       gesture.g.setAttribute('transform', `translate(${dx / k},${dy / k})`);
       gesture.dx = dx / k; gesture.dy = dy / k;
@@ -938,7 +962,8 @@ function bindView() {
           ? t('Click one of the selected images to put it in the frame, or drag an image onto it.') : '');
         renderStage(); renderChosenBar(); renderTextTools(true);
       } else toggleTarget(pageOfItem(g.name));
-    } else if (g.mode === 'move') moveSticker(g.item, g.item.x + g.dx, g.item.y + g.dy, g.item.w);
+    } else if (g.mode === 'resize') commitResize(g);
+    else if (g.mode === 'move') moveSticker(g.item, g.item.x + g.dx, g.item.y + g.dy, g.item.w);
     else if (g.mode === 'pan') commitCrop(g.item);
     else if (g.mode === 'swap') {
       const other = dropTarget;
@@ -974,6 +999,63 @@ function highlightDrop() {
   g.appendChild(r);
 }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ---------- moving a border of a frame
+
+// the caption made just after an image frame, which stays under it
+function captionOf(it) {
+  if (it.role !== 'image') return null;
+  const p = doc.pages.find(p => p.items.includes(it));
+  return p && p.items.find(c => c.role === 'caption' && c.slot === it.slot + 1 && c.layout === it.layout) || null;
+}
+
+// the border follows the pointer, and sticks to the margins and to the borders of the other
+// frames (or at the gap of the layout from them) when it is close
+function resizeFrame(g, dx, dy) {
+  const it = g.item, st = g.start, page = doc.pages.find(p => p.items.includes(it));
+  const m = page.margins, gap = mm(SPACING[$('spacing').value] || 5), tol = Math.max(page.width, page.height) / 120;
+  const others = page.items.filter(o => o !== it && o !== g.caption && o.role !== 'sticker');
+  const vertical = g.edge === 'left' || g.edge === 'right';
+  const lines = vertical ? [m.left, page.width - m.right] : [m.top, page.height - m.bottom];
+  for (const o of others) {
+    const a = vertical ? o.x : o.y, b = vertical ? o.x + o.w : o.y + o.h;
+    lines.push(a, b, a - gap, b + gap);
+  }
+  const snap = v => {    // the closest line within the tolerance, or v
+    let best = v, distance = tol;
+    for (const l of lines) if (Math.abs(l - v) < distance) { best = l; distance = Math.abs(l - v); }
+    return best;
+  };
+  const min = mm(5), captionH = g.caption ? g.caption.h : 0;
+  let {x, y, w, h} = st;
+  if (g.edge === 'left') { x = Math.min(snap(st.x + dx), st.x + st.w - min); w = st.x + st.w - x; }
+  if (g.edge === 'right') w = Math.max(snap(st.x + st.w + dx) - st.x, min);
+  if (g.edge === 'top') { y = Math.min(snap(st.y + dy), st.y + st.h - min); h = st.y + st.h - y; }
+  if (g.edge === 'bottom') {    // with a caption, it is the bottom of the caption that sticks
+    h = Math.max(snap(st.y + st.h + captionH + dy) - captionH - st.y, min);
+  }
+  Object.assign(it, {x, y, w, h});
+  if (g.crop && g.aspect) {    // the image keeps its zoom and its center
+    const cw = Math.max(w, h * g.aspect), iw = cw * g.crop.zoom, ih = iw / g.aspect;
+    it.crop = [clamp(w / 2 - g.crop.cx * iw, w - iw, 0), clamp(h / 2 - g.crop.cy * ih, h - ih, 0), iw, ih];
+  }
+  if (g.caption) Object.assign(g.caption, {x, y: y + h, w});
+  g.moved = true;
+  if (!g.frame) g.frame = requestAnimationFrame(() => {    // redraw the view (the pointer stays captured)
+    g.frame = null;
+    const view = $('view');
+    view.innerHTML = pagesSvg(currentSpread(), {large: true}).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+  });
+}
+
+async function commitResize(g) {
+  const it = g.item, page = doc.pages.find(p => p.items.includes(it));
+  await run(async () => {
+    doc = (await api('/api/resize', {frame: it.name, page: page.page, x: it.x, y: it.y, w: it.w, h: it.h})).document;
+    markChanged();
+    renderAll();
+  });
+}
 
 // ---------- crop: zoom and position of the image in the picked frame
 
@@ -1461,6 +1543,10 @@ function appliedLayout(tp) {
 async function reapply(confirmed) {
   const sp = currentSpread(), tp = sp.filter(p => target.has(p.page)), sig = appliedLayout(tp);
   $('reapplyConfirm').style.display = 'none';
+  if (sig === 'custom') {
+    message(t('The frames of this page were adjusted by hand: choose a layout to lay it out again with these options.'));
+    return;
+  }
   if (!sig) return;
   if (!confirmed && tp.some(p => p.items.some(i => i.styled))) {
     $('reapplyConfirm').style.display = 'flex';
