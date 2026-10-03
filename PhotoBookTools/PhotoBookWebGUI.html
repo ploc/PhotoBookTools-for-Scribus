@@ -923,6 +923,7 @@ async function insertPages(after, index) {
 
 function selectSpread(i) {
   flushCrop();
+  const left = currentSpread();
   current = Math.max(0, Math.min(i, spreads().length - 1));
   picked = null;
   // target: the empty pages of the double page, or all of them
@@ -931,7 +932,7 @@ function selectSpread(i) {
   hideClearConfirm();
   message('');
   loadPageOptions();
-  autoChoose();
+  autoChoose(left);
   renderAll();
 }
 
@@ -1557,7 +1558,7 @@ function toggleTarget(page) {
   else target.add(page);
   hideClearConfirm();
   loadPageOptions();
-  autoChoose();
+  autoChoose([]);
   renderStage(); renderLayouts(); renderChosenBar(); renderPool();
 }
 
@@ -1770,13 +1771,20 @@ function chosenImage(key) {
   }
   return null;
 }
-// a page made by this page shows its photos as the selected images, as when it was made
-function autoChoose() {
-  if (chosen.length && !autoChosen) return;    // images chosen by the user stay
+// a page made by this page shows its photos as the selected images, as when it was made.
+// left: the pages just left when another page is chosen; the images chosen by the user then
+// stay only if the new pages have no photos and they are not placed on the pages left
+function autoChoose(left) {
   const tp = currentSpread().filter(p => target.has(p.page)), content = tp.length ? pageContent(tp) : null;
-  chosen = content ? content.photos.map(photoKey) : [];
+  const photos = content ? content.photos.map(photoKey) : [];
+  if (chosen.length && !autoChosen) {    // images chosen by the user
+    if (!left || !photos.length && !placedOn(left, chosen)) return;
+  }
+  chosen = photos;
   autoChosen = chosen.length > 0;
 }
+// some of the images are on these pages
+const placedOn = (pages, images) => pages.some(p => p.items.some(it => it.image && images.includes(photoKey(it))));
 
 // ---------- editing a page made by this page: its content is kept when the layout changes
 
