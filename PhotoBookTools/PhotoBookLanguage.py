@@ -199,9 +199,14 @@ FRENCH = {
         '🧲 Aimant désactivé : le bord se déplace librement. Relâchez Ctrl (ou Alt) pour l\'aligner à nouveau.',
     '🧲 Aligned on the dashed line. Hold Ctrl (or Alt) to move freely.':
         '🧲 Aligné sur la ligne pointillée. Maintenez Ctrl (ou Alt) pour déplacer librement.',
-    '🧲 Magnet: the borders jump to the margins, the middle of the pages, the fold and the borders of the other frames. Hold Ctrl (or Alt) while dragging to move freely.':
-        '🧲 Aimant : les bords sautent sur les marges, le milieu des pages, la pliure et les bords des '
-        'autres cadres. Maintenez Ctrl (ou Alt) en glissant pour déplacer librement.',
+    '🧲 Magnet: the borders jump to the margins, the middle of the pages, the fold, the borders of the other frames and their sizes. Hold Ctrl (or Alt) while dragging to move freely.':
+        '🧲 Aimant : les bords sautent sur les marges, le milieu des pages, la pliure, les bords des '
+        'autres cadres et leurs tailles. Maintenez Ctrl (ou Alt) en glissant pour déplacer librement.',
+    '🧲 Same height as the frame marked in green.': '🧲 Même hauteur que le cadre marqué en vert.',
+    '🧲 Same height as the frames marked in green.': '🧲 Même hauteur que les cadres marqués en vert.',
+    '🧲 Same width as the frame marked in green.': '🧲 Même largeur que le cadre marqué en vert.',
+    '🧲 Same width as the frames marked in green.': '🧲 Même largeur que les cadres marqués en vert.',
+    'Hold Ctrl (or Alt) to move freely.': 'Maintenez Ctrl (ou Alt) pour déplacer librement.',
     'Click a page below to choose where the layout goes.':
         'Cliquez sur une page ci-dessous pour choisir où placer la mise en page.',
     'This page already has content: erase it to make a new layout.':

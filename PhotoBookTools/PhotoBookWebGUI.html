@@ -227,6 +227,7 @@ svg .movehandle { cursor: move; }
 svg .movehandle circle { fill: var(--accent); stroke: #fff; }
 svg .movehandle text { fill: #fff; font-weight: 700; pointer-events: none; }
 svg .guide { stroke: #1f9d55; pointer-events: none; }
+svg .sameguide { stroke: #1f9d55; fill: none; pointer-events: none; }
 .magnethelp { display: none; font-size: 12px; padding: 2px 0; }
 .magnethelp.on { display: block; }
 .magnethelp.free { color: var(--danger); }
@@ -773,6 +774,8 @@ function pagesSvg(pages, opts) {
     const a = `stroke-width="${sw * 1.5}" stroke-dasharray="${sw * 6} ${sw * 4}"`;
     for (const x of opts.guides.x) guides += `<line class="guide" x1="${x}" y1="${-pad}" x2="${x}" y2="${h + pad}" ${a}/>`;
     for (const y of opts.guides.y) guides += `<line class="guide" x1="${-pad}" y1="${y}" x2="${w + pad}" y2="${y}" ${a}/>`;
+    const same = opts.guides.same;
+    if (same) for (const r of [same.self, ...same.frames]) guides += sizeMarkSvg(r, same.dim, sw);
   }
   return s + handles + guides + '</svg>';
 }
@@ -814,6 +817,22 @@ function itemSvg(it, id, sw, opts) {
   }
   if (opts.large && it.name && it.name === picked) {
     s += `<rect class="pick" ${r} stroke-width="${sw * 5}" pointer-events="none"/>`;
+  }
+  return s + '</g>';
+}
+
+// a dimension line in a frame, along its height (dim 'h') or its width ('w'), with a tick at each
+// end: the frames of the same size as the frame being resized
+function sizeMarkSvg(r, dim, sw) {
+  const d = sw * 14, k = sw * 4, line = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  let s = `<g class="sameguide" stroke-width="${sw * 2}"><rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"`
+    + ` stroke-width="${sw * 1.5}" stroke-dasharray="${sw * 6} ${sw * 4}"/>`;
+  if (dim === 'h') {
+    const x = r.x + d;
+    s += line(x, r.y, x, r.y + r.h) + line(x - k, r.y + sw, x + k, r.y + sw) + line(x - k, r.y + r.h - sw, x + k, r.y + r.h - sw);
+  } else {
+    const y = r.y + d;
+    s += line(r.x, y, r.x + r.w, y) + line(r.x + sw, y - k, r.x + sw, y + k) + line(r.x + r.w - sw, y - k, r.x + r.w - sw, y + k);
   }
   return s + '</g>';
 }
@@ -1164,10 +1183,18 @@ function resizeFrame(g) {
     }
     return v;
   };
-  // a border: it sticks to a line if the line is within its limits
-  const border = (pos, lines, lo, hi, out) => {
-    const s = snapTo(pos, lines, tol), v = clamp(s.v, lo, hi);
-    if (s.line !== null && Math.abs(v - s.line) < eps) out.push(s.line);
+  // the sizes of the other frames (without their caption): a border also sticks where the
+  // frame gets the width or the height of one of them, from its other border (anchor)
+  const sized = others.filter(r => r.o.role !== 'caption');
+  const sizes = (anchor, sign, dim) => sized.map(r => ({v: anchor + sign * r[dim], r, dim}));
+  // a border: it sticks to a line, or to a size, if it is within its limits
+  const border = (pos, lines, lo, hi, out, cands) => {
+    const s = snapTo(pos, lines.concat(cands.map(c => c.v)), tol), v = clamp(s.v, lo, hi);
+    if (s.line !== null && Math.abs(v - s.line) < eps) {
+      if (lines.some(l => Math.abs(l - s.line) < eps)) out.push(s.line);
+      const same = cands.filter(c => Math.abs(c.v - s.line) < eps);
+      if (same.length) guides.same = {dim: same[0].dim, frames: same.map(c => c.r)};
+    }
     return v;
   };
   let {x, y, w, h} = b;
@@ -1176,14 +1203,16 @@ function resizeFrame(g) {
     if (g.axis === 'x') x = moveAlong(b.x + dx, b.w, lim.left, lim.right, L.x, L.cx, guides.x);
     else y = moveAlong(b.y + dy, b.h, lim.top, lim.bottom, L.y, L.cy, guides.y);
   } else if (g.edge === 'left') {
-    x = border(b.x + dx, L.x, lim.left, b.x + b.w - min, guides.x); w = b.x + b.w - x;
+    x = border(b.x + dx, L.x, lim.left, b.x + b.w - min, guides.x, sizes(b.x + b.w, -1, 'w')); w = b.x + b.w - x;
   } else if (g.edge === 'right') {
-    w = border(b.x + b.w + dx, L.x, b.x + min, lim.right, guides.x) - b.x;
+    w = border(b.x + b.w + dx, L.x, b.x + min, lim.right, guides.x, sizes(b.x, 1, 'w')) - b.x;
   } else if (g.edge === 'top') {
-    y = border(b.y + dy, L.y, lim.top, b.y + b.h - capH - min, guides.y); h = b.y + b.h - y;
+    y = border(b.y + dy, L.y, lim.top, b.y + b.h - capH - min, guides.y, sizes(b.y + b.h - capH, -1, 'h'));
+    h = b.y + b.h - y;
   } else {    // bottom: with a caption, it is the bottom of the caption
-    h = border(b.y + b.h + dy, L.y, b.y + capH + min, lim.bottom, guides.y) - b.y;
+    h = border(b.y + b.h + dy, L.y, b.y + capH + min, lim.bottom, guides.y, sizes(b.y + capH, 1, 'h')) - b.y;
   }
+  if (guides.same) guides.same.self = {x, y, w, h: h - capH};
   g.guides = guides;
   // back to the coordinates of the page of the frame, without the caption
   Object.assign(it, {x: x - geo.pageOffset, y, w, h: h - capH});
@@ -1208,9 +1237,14 @@ function renderMagnetHelp(g) {
   const el = $('magnetHelp'), it = picked && itemByName(picked);
   const handles = it && it.role !== 'sticker' && (it.kind === 'image' || it.kind === 'text');
   let text = '';
+  const same = g && !g.free && g.guides.same, several = same && same.frames.length > 1;
   if (g && g.free) text = t('🧲 Magnet off: the border moves freely. Release Ctrl (or Alt) to align it again.');
+  else if (same) text = t(same.dim === 'h'
+    ? several ? '🧲 Same height as the frames marked in green.' : '🧲 Same height as the frame marked in green.'
+    : several ? '🧲 Same width as the frames marked in green.' : '🧲 Same width as the frame marked in green.')
+    + ' ' + t('Hold Ctrl (or Alt) to move freely.');
   else if (g && (g.guides.x.length || g.guides.y.length)) text = t('🧲 Aligned on the dashed line. Hold Ctrl (or Alt) to move freely.');
-  else if (g || handles) text = t('🧲 Magnet: the borders jump to the margins, the middle of the pages, the fold and the borders of the other frames. Hold Ctrl (or Alt) while dragging to move freely.');
+  else if (g || handles) text = t('🧲 Magnet: the borders jump to the margins, the middle of the pages, the fold, the borders of the other frames and their sizes. Hold Ctrl (or Alt) while dragging to move freely.');
   el.textContent = text;
   el.classList.toggle('on', !!text);
   el.classList.toggle('free', !!(g && g.free));
