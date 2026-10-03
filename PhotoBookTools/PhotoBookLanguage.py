@@ -174,6 +174,34 @@ FRENCH = {
     'Top': 'Haut',
     'Bottom': 'Bas',
     'Outer side': 'Côté extérieur',
+    'across the fold': 'à cheval sur la pliure',
+    'Frames': 'Cadres',
+    'Mirror layout': 'Miroir',
+    'Switch pages': 'Échanger les pages',
+    'Mirror the layout: what is on the left goes to the right, and the other way round.':
+        'Mettre la mise en page en miroir : ce qui est à gauche passe à droite, et inversement.',
+    'Switch the left and right pages: each page keeps its layout.':
+        'Échanger les pages de gauche et de droite : chaque page garde sa mise en page.',
+    'A frame is across the fold: use Mirror layout.': 'Un cadre est à cheval sur la pliure : utilisez Miroir.',
+    'Layout mirrored.': 'Mise en page mise en miroir.',
+    'Pages switched.': 'Pages échangées.',
+    'Any': 'Libre',
+    'Any number of frames': 'Nombre de cadres libre',
+    'Optional: how many frames on each page and across the fold. Leave on Any to see all the layouts.':
+        'Facultatif : combien de cadres sur chaque page et à cheval sur la pliure. Laissez sur Libre '
+        'pour voir toutes les mises en page.',
+    'Layouts with {} frames for {} images': 'Mises en page de {} cadres pour {} images',
+    'No layout with these numbers of frames: change them, or create a pattern in More options.':
+        'Aucune mise en page avec ces nombres de cadres : changez-les, ou créez un modèle dans Plus d\'options.',
+    'Fewer frames than selected images: the last images are left out.':
+        'Moins de cadres que d\'images sélectionnées : les dernières images ne sont pas placées.',
+    '🧲 Magnet off: the border moves freely. Release Ctrl (or Alt) to align it again.':
+        '🧲 Aimant désactivé : le bord se déplace librement. Relâchez Ctrl (ou Alt) pour l\'aligner à nouveau.',
+    '🧲 Aligned on the dashed line. Hold Ctrl (or Alt) to move freely.':
+        '🧲 Aligné sur la ligne pointillée. Maintenez Ctrl (ou Alt) pour déplacer librement.',
+    '🧲 Magnet: the borders jump to the margins, the middle of the pages, the fold and the borders of the other frames. Hold Ctrl (or Alt) while dragging to move freely.':
+        '🧲 Aimant : les bords sautent sur les marges, le milieu des pages, la pliure et les bords des '
+        'autres cadres. Maintenez Ctrl (ou Alt) en glissant pour déplacer librement.',
     'Click a page below to choose where the layout goes.':
         'Cliquez sur une page ci-dessous pour choisir où placer la mise en page.',
     'This page already has content: erase it to make a new layout.':
@@ -261,6 +289,8 @@ FRENCH = {
     'Layout': 'mise en page',
     'Image change': 'changement d\'image',
     'Swap images': 'échange d\'images',
+    'Mirror the pages': 'pages en miroir',
+    'Switch the pages': 'pages échangées',
     'Crop': 'recadrage',
     # pages
     'Pages': 'Pages',

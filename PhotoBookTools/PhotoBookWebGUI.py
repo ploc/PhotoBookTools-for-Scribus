@@ -997,6 +997,25 @@ class ScPhotoBookWebGUI:
     def attributes(self, name):
         return {a.get('Name'): a.get('Value') for a in getObjectAttributes(name)}
 
+    def arrange(self, moves):
+        """ Move items of a page or double page at once (pages mirrored or switched): they keep
+            their image, crop, text and formatting. moves: list of {frame, page, x, y}, and for
+            the items of a layout: layout (its new name, or 'custom' if the frames no longer
+            make one), slot (their order in that layout) and options (of that layout)."""
+        for move in moves:
+            frame = move['frame']
+            self.snapshot(frame)
+            gotoPage(move['page'])
+            moveObjectAbs(move['x'], move['y'], frame)
+            if move.get('layout'):
+                self.setAttribute(frame, LAYOUT_ATTRIBUTE, move['layout'])
+            if move.get('slot'):
+                self.setAttribute(frame, SLOT_ATTRIBUTE, str(move['slot']))
+            if move.get('options'):
+                self.setAttribute(frame, OPTIONS_ATTRIBUTE, json.dumps(move['options']))
+        deselectAll()
+        return {'document': self.document()}
+
     def resize(self, frame, page, x, y, w, h):
         """ Resize a frame of a layout (a border moved in the page): the image keeps its zoom
             and its center, the caption of an image stays under it. The page is then marked
@@ -1387,6 +1406,9 @@ class WebApp:
         if path == '/api/resize':
             return maker.action('Frame size', maker.resize, body['frame'], body['page'],
                 body['x'], body['y'], body['w'], body['h'])
+        if path == '/api/arrange':
+            return maker.action('Mirror the pages' if body.get('mirror') else 'Switch the pages',
+                maker.arrange, body['moves'])
         if path == '/api/delete':
             return maker.action('Delete', maker.deleteItem, body['frame'])
         if path == '/api/rotate':

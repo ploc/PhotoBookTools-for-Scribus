@@ -226,6 +226,11 @@ svg .handle.left, svg .handle.right { cursor: ew-resize; }
 svg .movehandle { cursor: move; }
 svg .movehandle circle { fill: var(--accent); stroke: #fff; }
 svg .movehandle text { fill: #fff; font-weight: 700; pointer-events: none; }
+svg .guide { stroke: #1f9d55; pointer-events: none; }
+.magnethelp { display: none; font-size: 12px; padding: 2px 0; }
+.magnethelp.on { display: block; }
+.magnethelp.free { color: var(--danger); }
+.options .sub { color: var(--muted); font-size: 12px; }
 
 /* svg pages */
 svg .pg { fill: var(--page); }
@@ -350,13 +355,29 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
             <option value="airy" data-t>Airy</option>
           </select></label>
         <label><input type="checkbox" id="captions"> <span data-t>Captions</span></label>
-        <label><span data-t>Text block</span>
+        <span><span data-t>Text block</span>
+          <label id="textblockLeft"><span class="sub" data-t>left page</span>
           <select id="textblock">
             <option value="none" data-t>None</option>
             <option value="top" data-t>Top</option>
             <option value="bottom" data-t>Bottom</option>
             <option value="outer" data-t>Outer side</option>
           </select></label>
+          <label id="textblockRight"><span class="sub" data-t>right page</span>
+          <select id="textblockright">
+            <option value="none" data-t>None</option>
+            <option value="top" data-t>Top</option>
+            <option value="bottom" data-t>Bottom</option>
+            <option value="outer" data-t>Outer side</option>
+          </select></label></span>
+      </div>
+      <div id="splitRow" class="options" style="margin-top:6px"
+        title="Optional: how many frames on each page and across the fold. Leave on Any to see all the layouts." data-t-title>
+        <span data-t>Frames</span>
+        <label><span class="sub" data-t>left page</span> <select id="splitLeft"></select></label>
+        <label><span class="sub" data-t>across the fold</span> <select id="splitCenter"></select></label>
+        <label><span class="sub" data-t>right page</span> <select id="splitRight"></select></label>
+        <button id="splitReset" class="icon" title="Any number of frames" data-t-title>✕</button>
       </div>
       <div id="layoutsInfo" class="muted" style="margin-top:6px"></div>
       <div id="reapplyConfirm" class="confirm" style="margin-top:6px">
@@ -371,6 +392,8 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
         <strong id="stageTitle"></strong>
         <span id="targetInfo" class="muted"></span>
         <div class="spacer"></div>
+        <button id="mirrorPages" title="Mirror the layout: what is on the left goes to the right, and the other way round." data-t-title>⇋ <span data-t>Mirror layout</span></button>
+        <button id="switchPages" title="Switch the left and right pages: each page keeps its layout." data-t-title>⇄ <span data-t>Switch pages</span></button>
         <button id="stickerButton" title="Add a color emoji on the page" data-t-title>😀 <span data-t>Sticker</span></button>
         <button id="clearPages" class="danger" data-t>Erase page content</button>
       </div>
@@ -416,6 +439,7 @@ svg .drop { fill: var(--accent); fill-opacity: .25; stroke: var(--accent); }
           <button id="textDone" class="primary" data-t>Done</button>
         </div>
       </div>
+      <div id="magnetHelp" class="magnethelp"></div>
       <div class="view"><svg id="view"></svg></div>
       <div id="message"></div>
     </div>
@@ -744,7 +768,13 @@ function pagesSvg(pages, opts) {
     s += '</g>';
     ox += p.width;
   });
-  return s + handles + '</svg>';
+  let guides = '';    // lines the moved border sticks to, across the double page
+  if (opts.guides) {
+    const a = `stroke-width="${sw * 1.5}" stroke-dasharray="${sw * 6} ${sw * 4}"`;
+    for (const x of opts.guides.x) guides += `<line class="guide" x1="${x}" y1="${-pad}" x2="${x}" y2="${h + pad}" ${a}/>`;
+    for (const y of opts.guides.y) guides += `<line class="guide" x1="${-pad}" y1="${y}" x2="${w + pad}" y2="${y}" ${a}/>`;
+  }
+  return s + handles + guides + '</svg>';
 }
 
 function itemSvg(it, id, sw, opts) {
@@ -895,12 +925,19 @@ function renderStage() {
       + (tp.length === 2 ? t('both pages') : tp.length ? (tp[0] === sp[0] ? t('left page') : t('right page')) : t('none'))
     : '';
   $('clearPages').disabled = !tp.some(p => p.items.length);
+  const mirrorable = arrangedPages('mirror'), switchable = arrangedPages('switch');
+  $('mirrorPages').disabled = !mirrorable;
+  $('switchPages').disabled = !switchable;
+  $('switchPages').style.display = sp.length === 2 ? '' : 'none';
+  $('switchPages').title = sp.length === 2 && sp.some(p => p.items.length) && !switchable
+    ? t('A frame is across the fold: use Mirror layout.') : t('Switch the left and right pages: each page keeps its layout.');
   if (picked && !itemByName(picked)) picked = null;
   renderKept(tp);
   const svg = pagesSvg(sp, {large: true});
   $('view').outerHTML = svg.replace('<svg ', '<svg id="view" ');
   bindView();
   renderCropTools();
+  renderMagnetHelp();
 }
 
 const itemByName = name => {
@@ -956,7 +993,9 @@ function bindView() {
     if (!gesture.moved && Math.hypot(dx, dy) < 4) return;
     gesture.moved = true;
     if (gesture.mode === 'resize' || gesture.mode === 'moveframe') {
-      resizeFrame(gesture, dx / view.getScreenCTM().a, dy / view.getScreenCTM().a);
+      const k = view.getScreenCTM().a;
+      Object.assign(gesture, {dx: dx / k, dy: dy / k, k, free: freeKey(e)});
+      resizeFrame(gesture);
     } else if (gesture.mode === 'move') {
       const k = view.getScreenCTM().a;
       gesture.g.setAttribute('transform', `translate(${dx / k},${dy / k})`);
@@ -977,11 +1016,14 @@ function bindView() {
   view.onpointercancel = view.onlostpointercapture = () => {
     if (gesture && gesture.mode === 'pan' && gesture.moved) { gesture = null; flushCrop(); }
   };
+  // Ctrl+click is a right click on a Mac: no menu while a frame is moved
+  view.oncontextmenu = e => { if (gesture) e.preventDefault(); };
   view.onpointerup = () => {
     const g = gesture;
     gesture = null;
     view.style.cursor = '';
     if (!g) return;
+    if (g.mode === 'resize' || g.mode === 'moveframe') renderMagnetHelp();
     if (!g.moved) {
       if ((g.kind === 'image' || g.kind === 'text' || g.kind === 'sticker') && g.name) {
         if (picked && picked !== g.name) saveText();
@@ -1056,12 +1098,46 @@ function spreadGeometry(it) {
   return {rects, pageOffset, area, page};
 }
 
-// a border follows the pointer (or the whole frame, across or up and down): it sticks to the
-// margins and to the borders of the other frames (or at the gap of the layout from them), stays
-// inside the margins and does not cover other frames; an image takes its caption along
-function resizeFrame(g, dx, dy) {
-  const it = g.item, st = g.start, geo = g.geo || (g.geo = spreadGeometry(it));
-  const gap = mm(SPACING[$('spacing').value] || 5), tol = Math.max(geo.page.width, geo.page.height) / 120;
+// the magnet: a moved border jumps to the lines of the double page near it (margins, middle of
+// the pages, fold, borders of the other frames or at the gap of the layout from them); Ctrl (or
+// Alt) held down lets it move freely
+const MAGNET = 10;    // distance in pixels of the screen at which a border jumps to a line
+const freeKey = e => e.ctrlKey || e.altKey;
+
+// the lines of the double page: x and y of the borders, and of the middles (for a moved frame)
+function magnetLines(geo, others, gap) {
+  const sp = currentSpread(), x = [geo.area.x0, geo.area.x1], y = [geo.area.y0, geo.area.y1];
+  const cx = [], cy = [];
+  let offset = 0;
+  for (const p of sp) {
+    const m = p.margins;
+    x.push(offset + m.left, offset + p.width - m.right, offset + p.width / 2);
+    y.push(m.top, p.height - m.bottom, p.height / 2);
+    cx.push(offset + p.width / 2, offset + (m.left + p.width - m.right) / 2);
+    cy.push(p.height / 2, (m.top + p.height - m.bottom) / 2);
+    offset += p.width;
+  }
+  if (sp.length === 2) cx.push(sp[0].width);    // a frame centered on the fold
+  for (const r of others) {
+    x.push(r.x, r.x + r.w, r.x - gap, r.x + r.w + gap);
+    y.push(r.y, r.y + r.h, r.y - gap, r.y + r.h + gap);
+    cx.push(r.x + r.w / 2); cy.push(r.y + r.h / 2);
+  }
+  return {x, y, cx, cy};
+}
+// the closest line within the tolerance: {v, line}, line null if none
+function snapTo(v, lines, tol) {
+  let best = {v, line: null}, distance = tol;
+  for (const l of lines) if (Math.abs(l - v) < distance) { best = {v: l, line: l}; distance = Math.abs(l - v); }
+  return best;
+}
+
+// a border follows the pointer (or the whole frame, across or up and down): with the magnet, it
+// jumps to the lines of the double page; it stays inside the margins and does not cover other
+// frames; an image takes its caption along
+function resizeFrame(g) {
+  const it = g.item, st = g.start, geo = g.geo || (g.geo = spreadGeometry(it)), dx = g.dx, dy = g.dy;
+  const gap = mm(SPACING[$('spacing').value] || 5), tol = g.free ? 0 : MAGNET / (g.k || 1);
   const capH = g.caption ? g.caption.h : 0, eps = 0.01, min = mm(5);
   // the frame and its caption, in the coordinates of the double page
   const b = {x: st.x + geo.pageOffset, y: st.y, w: st.w, h: st.h + capH};
@@ -1074,39 +1150,41 @@ function resizeFrame(g, dx, dy) {
     right: Math.min(geo.area.x1, ...others.filter(r => acrossY(r) && r.x >= b.x + b.w - eps).map(r => r.x)),
     top: Math.max(geo.area.y0, ...others.filter(r => acrossX(r) && r.y + r.h <= b.y + eps).map(r => r.y + r.h)),
     bottom: Math.min(geo.area.y1, ...others.filter(r => acrossX(r) && r.y >= b.y + b.h - eps).map(r => r.y))};
-  const linesX = [geo.area.x0, geo.area.x1], linesY = [geo.area.y0, geo.area.y1];
-  for (const r of others) {
-    linesX.push(r.x, r.x + r.w, r.x - gap, r.x + r.w + gap);
-    linesY.push(r.y, r.y + r.h, r.y - gap, r.y + r.h + gap);
-  }
-  const snap = (v, lines) => {    // the closest line within the tolerance, or v
-    let best = v, distance = tol;
-    for (const l of lines) if (Math.abs(l - v) < distance) { best = l; distance = Math.abs(l - v); }
-    return best;
+  const L = g.lines || (g.lines = magnetLines(geo, others, gap));
+  const guides = {x: [], y: []};
+  // a moved frame: the border or the middle closest to a line sticks to it
+  const moveAlong = (pos, size, lo, hi, edges, middles, out) => {
+    let v = clamp(pos, lo, hi - size);
+    const c = [snapTo(v, edges, tol), snapTo(v + size, edges, tol), snapTo(v + size / 2, middles, tol)]
+      .map((s, i) => ({s, to: s.v - [0, size, size / 2][i]})).filter(c => c.s.line !== null);
+    if (c.length) {
+      c.sort((a, b) => Math.abs(a.to - v) - Math.abs(b.to - v));
+      const to = clamp(c[0].to, lo, hi - size);
+      if (Math.abs(to - c[0].to) < eps) { v = to; out.push(c[0].s.line); }
+    }
+    return v;
+  };
+  // a border: it sticks to a line if the line is within its limits
+  const border = (pos, lines, lo, hi, out) => {
+    const s = snapTo(pos, lines, tol), v = clamp(s.v, lo, hi);
+    if (s.line !== null && Math.abs(v - s.line) < eps) out.push(s.line);
+    return v;
   };
   let {x, y, w, h} = b;
   if (g.mode === 'moveframe') {
     if (!g.axis) g.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';    // the first move chooses the direction
-    if (g.axis === 'x') {
-      let nx = clamp(b.x + dx, lim.left, lim.right - b.w);
-      const left = snap(nx, linesX), right = snap(nx + b.w, linesX) - b.w;    // either border sticks
-      nx = Math.abs(left - nx) <= Math.abs(right - nx) ? left : right;
-      x = clamp(nx, lim.left, lim.right - b.w);
-    } else {
-      let ny = clamp(b.y + dy, lim.top, lim.bottom - b.h);
-      const top = snap(ny, linesY), bottom = snap(ny + b.h, linesY) - b.h;
-      ny = Math.abs(top - ny) <= Math.abs(bottom - ny) ? top : bottom;
-      y = clamp(ny, lim.top, lim.bottom - b.h);
-    }
+    if (g.axis === 'x') x = moveAlong(b.x + dx, b.w, lim.left, lim.right, L.x, L.cx, guides.x);
+    else y = moveAlong(b.y + dy, b.h, lim.top, lim.bottom, L.y, L.cy, guides.y);
   } else if (g.edge === 'left') {
-    x = clamp(snap(b.x + dx, linesX), lim.left, b.x + b.w - min); w = b.x + b.w - x;
+    x = border(b.x + dx, L.x, lim.left, b.x + b.w - min, guides.x); w = b.x + b.w - x;
   } else if (g.edge === 'right') {
-    w = clamp(snap(b.x + b.w + dx, linesX), b.x + min, lim.right) - b.x;
+    w = border(b.x + b.w + dx, L.x, b.x + min, lim.right, guides.x) - b.x;
   } else if (g.edge === 'top') {
-    y = clamp(snap(b.y + dy, linesY), lim.top, b.y + b.h - capH - min); h = b.y + b.h - y;
+    y = border(b.y + dy, L.y, lim.top, b.y + b.h - capH - min, guides.y); h = b.y + b.h - y;
   } else {    // bottom: with a caption, it is the bottom of the caption
-    h = clamp(snap(b.y + b.h + dy, linesY), b.y + capH + min, lim.bottom) - b.y;
+    h = border(b.y + b.h + dy, L.y, b.y + capH + min, lim.bottom, guides.y) - b.y;
   }
+  g.guides = guides;
   // back to the coordinates of the page of the frame, without the caption
   Object.assign(it, {x: x - geo.pageOffset, y, w, h: h - capH});
   if (g.crop && g.aspect) {    // the image keeps its zoom and its center
@@ -1115,11 +1193,27 @@ function resizeFrame(g, dx, dy) {
   }
   if (g.caption) Object.assign(g.caption, {x: it.x, y: it.y + it.h, w: it.w});
   g.moved = true;
+  renderMagnetHelp(g);
   if (!g.frame) g.frame = requestAnimationFrame(() => {    // redraw the view (the pointer stays captured)
     g.frame = null;
     const view = $('view');
-    view.innerHTML = pagesSvg(currentSpread(), {large: true}).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+    view.innerHTML = pagesSvg(currentSpread(), {large: true, guides: gesture === g ? g.guides : null})
+      .replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
   });
+}
+
+// how the magnet works, under the tools of the frame: while a border or a frame is moved, and
+// when a frame with handles is selected
+function renderMagnetHelp(g) {
+  const el = $('magnetHelp'), it = picked && itemByName(picked);
+  const handles = it && it.role !== 'sticker' && (it.kind === 'image' || it.kind === 'text');
+  let text = '';
+  if (g && g.free) text = t('🧲 Magnet off: the border moves freely. Release Ctrl (or Alt) to align it again.');
+  else if (g && (g.guides.x.length || g.guides.y.length)) text = t('🧲 Aligned on the dashed line. Hold Ctrl (or Alt) to move freely.');
+  else if (g || handles) text = t('🧲 Magnet: the borders jump to the margins, the middle of the pages, the fold and the borders of the other frames. Hold Ctrl (or Alt) while dragging to move freely.');
+  el.textContent = text;
+  el.classList.toggle('on', !!text);
+  el.classList.toggle('free', !!(g && g.free));
 }
 
 async function commitResize(g) {
@@ -1127,6 +1221,103 @@ async function commitResize(g) {
   await run(async () => {
     doc = (await api('/api/resize', {frame: it.name, page: page.page, x: it.x, y: it.y, w: it.w, h: it.h})).document;
     markChanged();
+    renderAll();
+  });
+}
+
+// ---------- mirror and switch: the items move with their content and their formatting
+
+// the pages whose items move: for a mirror, the pages chosen (both if a frame is across the
+// fold); for a switch, both pages, if no frame is across the fold. null if nothing to move.
+function arrangedPages(mode) {
+  const sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
+  const across = sp.length === 2 && sp[0].items.some(i => i.x + i.w > sp[0].width + 0.01);
+  const pages = mode === 'switch' ? (sp.length === 2 && !across ? sp : null) : across || !tp.length ? sp : tp;
+  return pages && pages.some(p => p.items.length) ? pages : null;
+}
+
+// where each item goes: mirrored across the pages, or on the other page at the same place
+// from its margins; a frame across the fold stays with the left page
+function arrangedItems(pages, mode) {
+  const offsets = [];
+  let width = 0;
+  for (const p of pages) { offsets.push(width); width += p.width; }
+  const moves = [];
+  pages.forEach((p, pi) => p.items.forEach(it => {
+    let to = p, x = it.x;
+    if (mode === 'switch') {
+      to = pages[1 - pi];
+      x = to.margins.left + it.x - p.margins.left;
+    } else {
+      const X = width - offsets[pi] - it.x - it.w, qi = pages.length === 2 && X >= pages[0].width - 0.01 ? 1 : 0;
+      to = pages[qi];
+      x = X - offsets[qi];
+    }
+    moves.push({it, page: to.page, x, y: it.y, w: it.w, h: it.h});
+  }));
+  return moves;
+}
+
+// the options of a layout after the move: the text blocks go to the other page, the
+// alignment left or right is mirrored
+function arrangedOptions(o, mode, otherPage) {
+  if (!o) return null;
+  const n = Object.assign({}, o), right = o.textblockright !== undefined ? o.textblockright : o.textblock;
+  if (otherPage) { n.textblock = right; n.textblockright = o.textblock; }
+  if (mode === 'mirror') n.alignh = {Left: 'Right', Right: 'Left'}[o.alignh] || o.alignh;
+  return n;
+}
+
+// the layout the moved items of a layout make, if any: {sig, slots: move -> order in it}
+function matchingLayout(moves, o) {
+  const pages = currentSpread().filter(p => moves.some(m => m.page === p.page));
+  const n = moves.filter(m => m.it.role === 'image').length, tol = mm(0.2);
+  const near = (m, f) => m.page === f.page && m.it.role === f.kind && Math.abs(m.x - f.x) < tol
+    && Math.abs(m.y - f.y) < tol && Math.abs(m.w - f.w) < tol && Math.abs(m.h - f.h) < tol;
+  for (const l of layoutsFor(pages, n, [], options(o), null, true)) {
+    if (l.frames.length !== moves.length) continue;
+    const slots = new Map();
+    l.frames.forEach((f, i) => {
+      const m = moves.find(m => !slots.has(m) && near(m, f));
+      if (m) slots.set(m, i + 1);
+    });
+    if (slots.size === moves.length) return {sig: l.sig, slots};
+  }
+  return null;
+}
+
+async function arrangePages(mode) {
+  flushCrop();
+  if (textTimer) await saveText();
+  const pages = arrangedPages(mode);
+  if (!pages) return;
+  const moves = arrangedItems(pages, mode);
+  // the items of each layout: a layout over both pages has its slots once, two layouts
+  // made on each page with the same name have the same slots
+  const groups = [];
+  for (const m of moves) {
+    if (!m.it.app || !m.it.layout || m.it.role === 'sticker') continue;
+    let g = groups.find(g => g.sig === m.it.layout && !g.moves.some(o => o.it.slot === m.it.slot));
+    if (!g) groups.push(g = {sig: m.it.layout, moves: []});
+    g.moves.push(m);
+  }
+  const otherPage = mode === 'switch' || pages.length === 2;
+  for (const g of groups) {
+    const o = arrangedOptions((g.moves.find(m => m.it.options) || {it: {}}).it.options, mode, otherPage);
+    const match = g.sig !== 'custom' && o ? matchingLayout(g.moves, o) : null;
+    for (const m of g.moves) Object.assign(m, {layout: match ? match.sig : 'custom', slot: match ? match.slots.get(m) : null,
+      options: o});
+  }
+  await run(async () => {
+    doc = (await api('/api/arrange', {mirror: mode === 'mirror', moves: moves.map(m => ({frame: m.it.name, page: m.page,
+      x: m.x, y: m.y, layout: m.layout, slot: m.slot, options: m.options}))})).document;
+    markChanged();
+    picked = null;
+    const sp = currentSpread();
+    if (mode === 'switch') target = new Set([...target].map(n => sp[0].page + sp[1].page - n));
+    if (pages.length === 2) [$('splitLeft').value, $('splitRight').value] = [$('splitRight').value, $('splitLeft').value];
+    loadPageOptions();
+    message(mode === 'mirror' ? t('Layout mirrored.') : t('Pages switched.'));
     renderAll();
   });
 }
@@ -1340,31 +1531,36 @@ function toggleTarget(page) {
 
 const SPACING = {tight: 2, normal: 5, airy: 10};
 
-function options() {
-  const num = id => parseFloat($(id).value) || 0;
+function options(stored) {    // stored: the options kept with a page; by default, the controls
+  if (stored && stored.textblockright === undefined) stored = Object.assign({}, stored, {textblockright: stored.textblock});
+  const val = id => stored && stored[id] !== undefined ? stored[id] : $(id).value;
+  const num = id => parseFloat(val(id)) || 0;
   const aw = num('aspectwidth'), ah = num('aspectheight');
   return {
-    gap: mm(SPACING[$('spacing').value] || 5), scale: num('scale') || 100,
-    aspect: aw > 0 && ah > 0 ? aw / ah : 0, alignh: $('alignh').value, alignv: $('alignv').value,
-    captionh: $('captions').checked ? mm(num('captionh') || 7) : 0,
-    textblock: $('textblock').value, textsize: (num('textsize') || 25) / 100,
-    airy: $('spacing').value === 'airy',
+    gap: mm(SPACING[val('spacing')] || 5), scale: num('scale') || 100,
+    aspect: aw > 0 && ah > 0 ? aw / ah : 0, alignh: val('alignh'), alignv: val('alignv'),
+    captionh: (stored ? stored.captions : $('captions').checked) ? mm(num('captionh') || 7) : 0,
+    textblocks: {left: val('textblock'), right: val('textblockright')}, textsize: (num('textsize') || 25) / 100,
+    airy: val('spacing') === 'airy',
   };
 }
+
+// the place of the text block of a page: each page of a double page has its own
+const textblockOf = (p, o) => p.side === 2 ? o.textblocks.right : o.textblocks.left;
 
 // area of a page for the photos, and the text block if any: [x, y, w, h]
 // outerLeft: true for a left page, false for a right page, null for a single page
 function pageAreas(p, o, outerLeft) {
-  const m = p.margins;
+  const m = p.margins, tb = textblockOf(p, o);
   let a = [m.left, m.top, p.width - m.left - m.right, p.height - m.top - m.bottom];
   if (o.airy) { const d = o.gap; a = [a[0] + d, a[1] + d, a[2] - 2 * d, a[3] - 2 * d]; }
   let text = null;
   const [x, y, w, h] = a, g = o.gap;
-  if (o.textblock === 'top' || o.textblock === 'bottom' || (o.textblock === 'outer' && outerLeft === null)) {
+  if (tb === 'top' || tb === 'bottom' || (tb === 'outer' && outerLeft === null)) {
     const th = h * o.textsize;
-    if (o.textblock === 'top') { text = [x, y, w, th]; a = [x, y + th + g, w, h - th - g]; }
+    if (tb === 'top') { text = [x, y, w, th]; a = [x, y + th + g, w, h - th - g]; }
     else { text = [x, y + h - th, w, th]; a = [x, y, w, h - th - g]; }
-  } else if (o.textblock === 'outer') {
+  } else if (tb === 'outer') {
     const tw = w * o.textsize;
     if (outerLeft) { text = [x, y, tw, h]; a = [x + tw + g, y, w - tw - g, h]; }
     else { text = [x + w - tw, y, tw, h]; a = [x, y, w - tw - g, h]; }
@@ -1386,50 +1582,49 @@ function areaFrames(page, area, pattern, o) {
   return frames;
 }
 
-// frames of a pattern on a page, with the text block
+// frames of a pattern on a page (none without a pattern), with the text block
 function pageFrames(p, pattern, o, outerLeft) {
   const {area, text} = pageAreas(p, o, outerLeft);
-  const frames = areaFrames(p.page, area, pattern, o);
+  const frames = pattern ? areaFrames(p.page, area, pattern, o) : [];
   if (!frames) return null;
   if (text) frames.push({page: p.page, kind: 'text', x: text[0], y: text[1], w: text[2], h: text[3]});
   return frames;
 }
 
-// layouts of a double page with one image across the fold (it belongs to the left page)
-// and the other images on both sides: in a band below or above it, or in the outer columns
-function panoramaLayouts(L, R, n, o) {
-  const g = o.gap, out = [], k = n - 1;
-  let x = L.margins.left, y = Math.max(L.margins.top, R.margins.top);
-  let w = L.width + R.width - R.margins.right - x;
-  let h = Math.min(L.height - L.margins.bottom, R.height - R.margins.bottom) - y;
-  if (o.airy) { x += g; y += g; w -= 2 * g; h -= 2 * g; }
-  const leftEnd = L.width - L.margins.right, rightStart = R.margins.left, rightEnd = R.width - R.margins.right;
-  const texts = [];
-  if (o.textblock !== 'none') {    // on both pages, at the top or at the bottom
-    const th = h * o.textsize, top = o.textblock === 'top', ty = top ? y : y + h - th;
-    texts.push({page: L.page, kind: 'text', x, y: ty, w: leftEnd - x, h: th});
-    texts.push({page: R.page, kind: 'text', x: rightStart, y: ty, w: rightEnd - rightStart - (o.airy ? g : 0), h: th});
-    if (top) y += th + g;
-    h -= th + g;
-  }
-  const pano = area => areaFrames(L.page, area, grid(1, 1), o);
+// layouts of a double page with c images across the fold (they belong to the left page), l on
+// the left page and r on the right one: in a band below or above the images across the fold,
+// or in the outer columns; each page keeps its own text block
+function panoramaLayouts(L, R, o, l, c, r) {
+  const g = o.gap, out = [];
+  const la = pageAreas(L, o, true), ra = pageAreas(R, o, false);
+  const texts = [[L, la.text], [R, ra.text]].filter(([, t]) => t)
+    .map(([p, t]) => ({page: p.page, kind: 'text', x: t[0], y: t[1], w: t[2], h: t[3]}));
+  // the area of each page, and the area common to both pages (in the coordinates of the left page)
+  const [ax, ay, aw, ah] = la.area, [bx, by, bw, bh] = ra.area;
+  const x = ax, x1 = L.width + bx + bw, y = Math.max(ay, by), y1 = Math.min(ay + ah, by + bh);
+  const w = x1 - x, h = y1 - y;
+  if (w <= 0 || h <= 0) return out;
+  const across = area => areaFrames(L.page, area, grid(1, c), o);
   const side = (page, area, pattern) => pattern ? areaFrames(page, area, pattern, o) : [];
-  const add = (parts, sig) => { if (parts.every(Boolean)) out.push({frames: [].concat(...parts, texts), sig: 'pano' + sig + n}); };
-  if (k === 0) { add([pano([x, y, w, h])], 'full'); return out; }
-  const kl = Math.ceil(k / 2), kr = k - kl;
+  // the name of the layout: as before for the usual numbers of frames on each page
+  const usual = c === 1 && l === Math.ceil((l + r) / 2), counts = usual ? l + c + r : `${l}.${c}.${r}`;
+  const add = (parts, variant) => {
+    if (parts.every(Boolean)) out.push({frames: [].concat(...parts, texts), sig: 'pano' + variant + counts});
+  };
+  if (!l && !r) { add([across([x, y, w, h])], 'full'); return out; }
   for (const top of [true, false]) {
-    const ph = (h - g) * 0.62, bh = h - g - ph;
-    const py = top ? y : y + bh + g, by = top ? y + ph + g : y;
-    add([pano([x, py, w, ph]),
-      side(L.page, [x, by, leftEnd - x, bh], kl && grid(kl, 1)),
-      side(R.page, [rightStart, by, rightEnd - rightStart - (o.airy ? g : 0), bh], kr && grid(kr, 1))],
+    const ph = (h - g) * 0.62, py = top ? y : y1 - ph;
+    // the pages below (or above) the band, each down to (or up from) its own area
+    const lb = top ? [ax, py + ph + g, aw, ay + ah - py - ph - g] : [ax, ay, aw, py - g - ay];
+    const rb = top ? [bx, py + ph + g, bw, by + bh - py - ph - g] : [bx, by, bw, py - g - by];
+    add([across([x, py, w, ph]), side(L.page, lb, l && grid(l, 1)), side(R.page, rb, r && grid(r, 1))],
       top ? 'top' : 'bottom');
   }
-  const pw = w * 0.5, px = L.width - pw / 2;
-  if (px - g > x) {
-    add([pano([px, y, pw, h]),
-      side(L.page, [x, y, px - g - x, h], grid(1, kl)),
-      side(R.page, [pw / 2 + g, y, rightEnd - pw / 2 - g - (o.airy ? g : 0), h], kr && grid(1, kr))], 'center');
+  const pw = w * 0.5, px = L.width - pw / 2, rx = pw / 2 + g;
+  if (px - g > ax && bx + bw > rx) {
+    add([across([px, y, pw, h]),
+      side(L.page, [ax, ay, px - g - ax, ah], l && grid(1, l)),
+      side(R.page, [rx, by, bx + bw - rx, bh], r && grid(1, r))], 'center');
   }
   return out;
 }
@@ -1453,8 +1648,20 @@ function assignImages(frames, images) {
   return mismatches;
 }
 
-// layouts for n images on the target pages, each with a name (sig) independent of the options
-function layoutsFor(tp, n, images, o) {
+// the numbers of frames asked for a double page: {left, center, right}, null when any number
+function frameSpec() {
+  const v = id => $(id).value === '' ? null : parseInt($(id).value);
+  return {left: v('splitLeft'), center: v('splitCenter'), right: v('splitRight')};
+}
+const known = v => v !== null && v !== undefined;
+// number of frames of the layouts: all the numbers asked, or one per image
+const frameCount = (spec, n) => known(spec.left) && known(spec.center) && known(spec.right)
+  ? spec.left + spec.center + spec.right : n;
+
+// layouts for n images on the target pages, each with a name (sig) independent of the options;
+// on a double page, spec ({left, center, right}) keeps the layouts with these numbers of frames
+// (it may give more or less frames than images); all: every layout, to find one by its name
+function layoutsFor(tp, n, images, o, spec, all) {
   const outer = p => p.side === 0 ? true : p.side === 2 ? false : null;
   const list = [];
   const add = (frames, sig) => {
@@ -1466,18 +1673,37 @@ function layoutsFor(tp, n, images, o) {
     for (const p of patternsWith(n)) add(pageFrames(tp[0], p, o, outer(tp[0])), 'p' + key(p));
   } else {
     const [L, R] = tp;
-    for (const {frames, sig} of panoramaLayouts(L, R, n, o)) add(frames, sig);
-    // k images on the left page, n - k on the right one, the most balanced first
-    const splits = [];
-    for (let k = 1; k < n; k++) splits.push(k);
-    splits.sort((a, b) => Math.abs(2 * a - n) - Math.abs(2 * b - n) || b - a);
-    for (const k of splits) {
-      const left = patternsWith(k).slice(0, 4), right = patternsWith(n - k).slice(0, 4);
-      let count = 0;
-      for (const lp of left) for (const rp of right) {
-        if (count++ >= 8) break;
-        const lf = pageFrames(L, lp, o, true), rf = pageFrames(R, rp, o, false);
-        if (lf && rf) add(lf.concat(rf), 'd' + key(lp) + key(rp));
+    spec = spec || {};
+    const asked = known(spec.left) || known(spec.center) || known(spec.right), many = asked || all;
+    const N = frameCount(spec, n);
+    // images across the fold first, then images on each page only
+    const centers = known(spec.center) ? [spec.center] : all ? [1, 0, 2, 3] : [1, 0];
+    for (const c of centers) {
+      // l images on the left page, the others on the right one, the most balanced first
+      let splits = [];
+      for (let l = 0; l <= N - c; l++) {
+        const r = N - c - l;
+        if (known(spec.left) && l !== spec.left || known(spec.right) && r !== spec.right) continue;
+        if (!c && !many && (!l || !r)) continue;    // a page without images only when asked
+        splits.push(l);
+      }
+      if (c && !many) splits = splits.filter(l => l === Math.ceil((N - c) / 2));
+      splits.sort((a, b) => Math.abs(2 * a - (N - c)) - Math.abs(2 * b - (N - c)) || b - a);
+      for (const l of splits) {
+        const r = N - c - l;
+        if (c) {
+          for (const {frames, sig} of panoramaLayouts(L, R, o, l, c, r)) add(frames, sig);
+          continue;
+        }
+        // with numbers asked, more patterns on each page
+        const some = list => all ? list : list.slice(0, asked ? 6 : 4), most = all ? Infinity : asked ? 36 : 8;
+        const left = l ? some(patternsWith(l)) : [null], right = r ? some(patternsWith(r)) : [null];
+        let count = 0;
+        for (const lp of left) for (const rp of right) {
+          if (count++ >= most) break;
+          const lf = pageFrames(L, lp, o, true), rf = pageFrames(R, rp, o, false);
+          if (lf && rf && lf.length + rf.length) add(lf.concat(rf), 'd' + (lp ? key(lp) : '-') + (rp ? key(rp) : '-'));
+        }
       }
     }
   }
@@ -1489,8 +1715,9 @@ function layoutsFor(tp, n, images, o) {
 function proposals() {
   const sp = currentSpread(), tp = sp.filter(p => target.has(p.page));
   if (!tp.length || tp.some(foreign)) return [];
-  const images = chosenRecords(tp);
-  return images.length ? layoutsFor(tp, images.length, images, options()).slice(0, 30) : [];
+  const images = chosenRecords(tp), spec = tp.length === 2 ? frameSpec() : {};
+  const n = frameCount(spec, images.length);
+  return images.length && n ? layoutsFor(tp, n, images, options(), spec).slice(0, 60) : [];
 }
 
 // the selected images: a photo of the page keeps its frame's crop, rotation, mirror and caption
@@ -1581,7 +1808,7 @@ function fillFrames(tp, frames, content) {
 }
 
 // the options of the layout, kept with the page to edit it later
-const OPTION_IDS = ['spacing', 'captionh', 'textblock', 'textsize', 'scale', 'aspectwidth', 'aspectheight',
+const OPTION_IDS = ['spacing', 'captionh', 'textblock', 'textblockright', 'textsize', 'scale', 'aspectwidth', 'aspectheight',
   'alignh', 'alignv', 'border'];
 function storedOptions() {
   const o = {captions: $('captions').checked};
@@ -1595,6 +1822,7 @@ function loadPageOptions() {
   const o = content.options;
   $('captions').checked = !!o.captions;
   for (const id of OPTION_IDS) if (o[id] !== undefined) $(id).value = o[id];
+  if (o.textblockright === undefined && o.textblock !== undefined) $('textblockright').value = o.textblock;    // made before
   updateGapInfo();
 }
 
@@ -1652,12 +1880,14 @@ async function reapply(confirmed) {
     return;
   }
   const content = pageContent(tp);
-  const found = layoutsFor(tp, content.photos.length, content.photos.map(photoRecord), options())
+  // the image frames in the order of the layout, with their photo or empty
+  const slots = tp.flatMap(p => p.items).filter(i => i.role === 'image').sort((a, b) => a.slot - b.slot);
+  const found = layoutsFor(tp, slots.length, content.photos.map(photoRecord), options(), null, true)
     .find(p => p.sig === sig);
   if (!found) return;
   // the same photos in the same frames as before
   let i = 0;
-  for (const f of found.frames) if (f.kind === 'image') f.image = (content.photos[i++] || {}).image || null;
+  for (const f of found.frames) if (f.kind === 'image') f.image = (slots[i++] || {}).image || null;
   await apply(tp, found.frames, sig, fillFrames(tp, found.frames, content));
 }
 
@@ -1667,14 +1897,19 @@ function renderLayouts() {
   const box = $('layouts');
   box.innerHTML = '';
   box.className = 'layouts' + (tp.length === 1 ? ' single' : '');
-  $('layoutsTitle').textContent = !n ? t('Layouts') : content ? fmt('Layouts for the {} photos of this page', n)
-    : fmt('Layouts for {} images', n);
+  renderLayoutControls(sp, tp);
+  const spec = tp.length === 2 ? frameSpec() : {}, frames = frameCount(spec, n);
+  $('layoutsTitle').textContent = !n ? t('Layouts') : frames !== n ? fmt('Layouts with {} frames for {} images', frames, n)
+    : content ? fmt('Layouts for the {} photos of this page', n) : fmt('Layouts for {} images', n);
   let info = '';
   if (!tp.length) info = t('Click a page below to choose where the layout goes.');
   else if (tp.some(foreign)) info = t('This page already has content: erase it to make a new layout.');
   else if (!n) info = t('Select images in the left panel to see the layouts.');
   const list = info ? [] : proposals();
-  if (!info && !list.length) info = t('No layout for this number of images: create a pattern in More options.');
+  if (!info && !list.length) info = known(spec.left) || known(spec.center) || known(spec.right)
+    ? t('No layout with these numbers of frames: change them, or create a pattern in More options.')
+    : t('No layout for this number of images: create a pattern in More options.');
+  if (!info && frames < n) info = t('Fewer frames than selected images: the last images are left out.');
   if (!info && tp.some(p => p.items.length)) info = t('Choosing a layout replaces the current one.');
   $('layoutsInfo').textContent = info;
   const current = appliedLayout(tp);
@@ -1685,6 +1920,17 @@ function renderLayouts() {
     b.onclick = () => chooseLayout(tp, p);
     box.appendChild(b);
   });
+}
+
+// the text block of each page, and the numbers of frames, shown for the pages chosen
+function renderLayoutControls(sp, tp) {
+  const both = tp.length === 2, right = tp.length === 1 && tp[0].side === 2;
+  $('textblockLeft').style.display = right ? 'none' : '';
+  $('textblockRight').style.display = both || right ? '' : 'none';
+  document.querySelectorAll('#textblockLeft .sub, #textblockRight .sub').forEach(e => e.style.display = both ? '' : 'none');
+  $('splitRow').style.display = both ? '' : 'none';
+  const spec = frameSpec();
+  $('splitReset').style.visibility = known(spec.left) || known(spec.center) || known(spec.right) ? '' : 'hidden';
 }
 
 let applying = 0;    // number of the last layout chosen
@@ -2121,10 +2367,11 @@ function saveNewPattern() {
 
 // ---------- settings
 
-const PARAMS = ['spacing', 'textblock', 'captionh', 'textsize', 'scale', 'aspectwidth', 'aspectheight',
+const PARAMS = ['spacing', 'textblock', 'textblockright', 'captionh', 'textsize', 'scale', 'aspectwidth', 'aspectheight',
   'alignh', 'alignv', 'border', 'pageunit', 'pagewidth', 'pageheight', 'margin', 'bleed'];
 function loadParams(p) {
   for (const k of PARAMS) if (p[k] !== undefined && p[k] !== '') $(k).value = p[k];
+  if (!p.textblockright && p.textblock) $('textblockright').value = p.textblock;    // settings saved before
   $('captions').checked = p.captions === '1';
 }
 async function saveParams() {
@@ -2334,14 +2581,26 @@ async function start() {
       Math.max(1, Math.min(12, parseInt($('rows').value) || 1)));
     renderEditor();
   };
-  for (const id of ['spacing', 'captions', 'textblock', 'captionh', 'textsize', 'scale', 'aspectwidth',
+  for (const id of ['spacing', 'captions', 'textblock', 'textblockright', 'captionh', 'textsize', 'scale', 'aspectwidth',
     'aspectheight', 'alignh', 'alignv', 'border']) {
     $(id).addEventListener('input', () => { updateGapInfo(); if (doc) renderLayouts(); });
     $(id).addEventListener('change', () => { flushCrop(); if (doc) reapply(); });    // the current layout follows
   }
+  // numbers of frames on each page of a double page: they only choose among the layouts
+  for (const [id, max] of [['splitLeft', 12], ['splitCenter', 3], ['splitRight', 12]]) {
+    $(id).innerHTML = `<option value="">${esc(t('Any'))}</option>`
+      + Array.from({length: max + 1}, (_, i) => `<option value="${i}">${i}</option>`).join('');
+    $(id).onchange = renderLayouts;
+  }
+  $('splitReset').onclick = () => {
+    for (const id of ['splitLeft', 'splitCenter', 'splitRight']) $(id).value = '';
+    renderLayouts();
+  };
   $('reapplyYes').onclick = () => reapply(true);
   $('keptShow').onclick = () => $('keptBox').classList.toggle('on');
   $('reapplyNo').onclick = () => { $('reapplyConfirm').style.display = 'none'; };
+  $('mirrorPages').onclick = () => arrangePages('mirror');
+  $('switchPages').onclick = () => arrangePages('switch');
   $('stickerButton').onclick = () => $('stickerBar').classList.toggle('on');
   EMOJIS.forEach(emoji => {
     const b = document.createElement('button');
@@ -2423,7 +2682,14 @@ async function start() {
     closeAfterSave = true;
     askSave();
   };
+  const magnetKey = e => {
+    if (!gesture || !gesture.moved || (gesture.mode !== 'resize' && gesture.mode !== 'moveframe')) return;
+    if (freeKey(e) !== !!gesture.free) { gesture.free = freeKey(e); resizeFrame(gesture); }
+  };
+  addEventListener('keyup', magnetKey);
+  addEventListener('blur', () => magnetKey({ctrlKey: false, altKey: false}));    // keys released elsewhere
   addEventListener('keydown', e => {
+    magnetKey(e);
     if ($('viewer').classList.contains('open')) {
       if (e.key === 'ArrowLeft' && viewerIndex > 0) showImage(viewerList, viewerIndex - 1);
       if (e.key === 'ArrowRight' && viewerIndex < viewerList.length - 1) showImage(viewerList, viewerIndex + 1);
